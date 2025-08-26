@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             # This line declares your Python node as an executable
+            'carla_scaling = clustering.scaling_carla_inputs:main',
             'live_cluster_inference_node = clustering.live_cluster_inference_node:main',
             'clock_publisher = clustering.clock_publisher:main'
         ],
