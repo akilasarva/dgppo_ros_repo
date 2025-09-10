@@ -1,0 +1,11 @@
+{
+    "Along Wall": 0.8050541516245487,
+    "Around Corner": 0.925,
+    "Enter Intersection/Exit Bridge": 0.6764705882352942,
+    "Exit Intersection/Enter Bridge": 0.78,
+    "In Intersection": 0.7648648648648648,
+    "On Bridge": 0.9482758620689655,
+    "Open Space": 1.0,
+    "Past Building": 0.95,
+    "Road": 0.9721518987341772
+}

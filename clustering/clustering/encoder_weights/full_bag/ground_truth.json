@@ -1,0 +1,127 @@
+[
+    {
+        "start_time": 0,
+        "end_time": 233,
+        "label": "Open Space"
+    },
+    {
+        "start_time": 234,
+        "end_time": 330,
+        "label": "Along Wall"
+    },
+    {
+        "start_time": 331,
+        "end_time": 450,
+        "label": "Around Corner"
+    },
+    {
+        "start_time": 451,
+        "end_time": 560,
+        "label": "Along Wall"
+    },
+    {
+        "start_time": 561,
+        "end_time": 620,
+        "label": "Exit Intersection/Enter Bridge"
+    },
+    {
+        "start_time": 611,
+        "end_time": 620,
+        "label": "In Intersection"
+    },
+    {
+        "start_time": 621,
+        "end_time": 640,
+        "label": "Exit Intersection/Enter Bridge"
+    },
+    {
+        "start_time": 641,
+        "end_time": 710,
+        "label": "Along Wall"
+    },
+    {
+        "start_time": 711,
+        "end_time": 790,
+        "label": "Past Building"
+    },
+    {
+        "start_time": 791,
+        "end_time": 1160,
+        "label": "Road"
+    },
+    {
+        "start_time": 1161,
+        "end_time": 1225,
+        "label": "Enter Intersection/Exit Bridge"
+    },
+    {
+        "start_time": 1226,
+        "end_time": 1250,
+        "label": "In Intersection"
+    },
+    {
+        "start_time": 1251,
+        "end_time": 1270,
+        "label": "Exit Intersection/Enter Bridge"
+    },
+    {
+        "start_time": 1271,
+        "end_time": 1530,
+        "label": "Road"
+    },
+    {
+        "start_time": 1531,
+        "end_time": 1575,
+        "label": "Enter Intersection/Exit Bridge"
+    },
+    {
+        "start_time": 1576,
+        "end_time": 1620,
+        "label": "In Intersection"
+    },
+    {
+        "start_time": 1621,
+        "end_time": 1630,
+        "label": "Exit Intersection/Enter Bridge"
+    },
+    {
+        "start_time": 1631,
+        "end_time": 1790,
+        "label": "Road"
+    },
+    {
+        "start_time": 1791,
+        "end_time": 1845,
+        "label": "Enter Intersection/Exit Bridge"
+    },
+    {
+        "start_time": 1846,
+        "end_time": 2070,
+        "label": "In Intersection"
+    },
+    {
+        "start_time": 2071,
+        "end_time": 2110,
+        "label": "Exit Intersection/Enter Bridge"
+    },
+    {
+        "start_time": 2111,
+        "end_time": 2400,
+        "label": "On Bridge"
+    },
+    {
+        "start_time": 2401,
+        "end_time": 2575,
+        "label": "Enter Intersection/Exit Bridge"
+    },
+    {
+        "start_time": 2576,
+        "end_time": 2640,
+        "label": "In Intersection"
+    },
+    {
+        "start_time": 2641,
+        "end_time": 2740,
+        "label": "Exit Intersection/Enter Bridge"
+    }
+]
