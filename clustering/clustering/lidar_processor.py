@@ -1,7 +1,7 @@
 # Create a new file, e.g., 'lidar_processor.py'
 import numpy as np
 
-def get_ranges_from_points(points, config):
+def get_ranges_from_points(points, config, max_range = 24):
     # This is the unified function for both training and inference
     finite_mask_full = np.isfinite(points).all(axis=1)
     points_full_finite = points[finite_mask_full]
@@ -13,14 +13,14 @@ def get_ranges_from_points(points, config):
                    (np.abs(points_full_finite[:, 2]) <= config['z_threshold_upper_2'])
 
     combined_slice_mask = (slice_mask_1 | slice_mask_2) & \
-                          (np.abs(points_full_finite[:, 0]) <= config['max_lidar_range']) & \
-                          (np.abs(points_full_finite[:, 1]) <= config['max_lidar_range'])
+                          (np.abs(points_full_finite[:, 0]) <= max_range) & \
+                          (np.abs(points_full_finite[:, 1]) <= max_range)
     points_slice = points_full_finite[combined_slice_mask]
 
     if points_slice.shape[0] == 0:
-        return np.full(config['num_ranges'], config['max_lidar_range'], dtype=np.float32)
+        return np.full(config['num_ranges'], max_range, dtype=np.float32)
 
-    ranges = np.full(config['num_ranges'], config['max_lidar_range'], dtype=np.float32)
+    ranges = np.full(config['num_ranges'], max_range, dtype=np.float32)
     point_angles = np.arctan2(points_slice[:, 1], points_slice[:, 0])
     distances = np.linalg.norm(points_slice[:, :2], axis=1)
 
@@ -33,6 +33,6 @@ def get_ranges_from_points(points, config):
         
         if len(sector_distances) > 0:
             min_dist = np.min(sector_distances)
-            ranges[i] = min(min_dist, config['max_lidar_range'])
+            ranges[i] = min(min_dist, max_range)
     
     return ranges

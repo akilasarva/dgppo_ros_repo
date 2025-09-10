@@ -641,6 +641,8 @@ import json # For saving/loading cluster labels
 import imageio # Make sure imageio is imported for GIF saving
 from sklearn import metrics
 from lidar_processor import get_ranges_from_points
+import umap
+import joblib
 
 class LidarEncoder(nn.Module):
     def __init__(self, embedding_size):
@@ -688,9 +690,10 @@ class Autoencoder(nn.Module):
         return decoded
 
 class LidarDataset(Dataset):
-    def __init__(self, pcd_folder, config):
+    def __init__(self, pcd_folder, config, max_range=None):
         self.pcd_files = sorted(glob.glob(os.path.join(pcd_folder, "*.pcd")))
         self.config = config
+        self.max_range = max_range if not None else self.config['max_lidar_range1']
 
     def __len__(self):
         return len(self.pcd_files)
@@ -705,10 +708,10 @@ class LidarDataset(Dataset):
             return torch.zeros(self.config['num_ranges'], dtype=torch.float32)
 
         # Use the shared preprocessing function
-        ranges = get_ranges_from_points(points, self.config)
+        ranges = get_ranges_from_points(points, self.config, self.max_range)
         
         # Normalize the ranges
-        normalized_ranges = ranges / self.config['max_lidar_range']
+        normalized_ranges = ranges / self.max_range #self.config['max_lidar_range']
         
         return torch.tensor(normalized_ranges, dtype=torch.float32)
 
@@ -786,7 +789,7 @@ def visualize_footprint_at_timestep(pcd_file, z_threshold_upper, z_threshold_low
 
     return pcd_all_o3d, line_set, pcd_footprint_slice, ranges
 
-def display_cluster_samples(pcd_folder, filenames, cluster_id, num_samples, config):
+def display_cluster_samples(pcd_folder, filenames, cluster_id, num_samples, config, max_range=8):
     if not filenames:
         print(f"  No samples to display for Cluster {cluster_id}.")
         return
@@ -805,7 +808,8 @@ def display_cluster_samples(pcd_folder, filenames, cluster_id, num_samples, conf
             config['z_threshold_lower'],  # Use new config keys
             config['z_threshold_upper_2'], # Use new config keys
             config['z_threshold_lower_2'], # Use new config keys
-            config['max_lidar_range'],
+            max_range,
+            #config['max_lidar_range'],
             config['angle_increment_deg'],
             show_footprint_lines=True # Always show footprint lines for manual inspection
         )
@@ -827,7 +831,7 @@ def display_cluster_samples(pcd_folder, filenames, cluster_id, num_samples, conf
             print(f"Could not load/process sample {filepath} for Cluster {cluster_id}.")
 
 def generate_cluster_gif(pcd_folder, pcd_filenames, cluster_labels, cluster_id_to_label, 
-                         output_path, gif_fps, config, color_map, z_thresholds_gif=None):
+                         output_path, gif_fps, config, color_map, z_thresholds_gif=None, max_range=8):
     print(f"\n--- Rendering visualizations to GIF: {output_path} ---")
     images = []
     vis = o3d.visualization.Visualizer()
@@ -859,7 +863,7 @@ def generate_cluster_gif(pcd_folder, pcd_filenames, cluster_labels, cluster_id_t
             z_lower_1,  
             z_upper_2, 
             z_lower_2, 
-            config['max_lidar_range'],
+            max_range,
             config['angle_increment_deg'],
             show_footprint_lines=True
         )
@@ -903,21 +907,15 @@ def generate_cluster_gif(pcd_folder, pcd_filenames, cluster_labels, cluster_id_t
         print(f"No frames were generated for {output_path}.")
 
 def run_autoencoder_and_cluster(data_folder_name, data_pcd_folder, global_config):
-    """
-    Main function to run the autoencoder training and clustering process.
-
-    Args:
-        data_folder_name (str): The name of the dataset (e.g., 'bridge2_carla').
-        data_pcd_folder (str): The path to the folder containing PCD files.
-        global_config (dict): The dictionary of all configuration parameters.
-    """
-
     print(f"\n--- Starting processing for dataset: {data_folder_name} ---")
 
     # Define all model and artifact paths based on the training data name
     config = global_config.copy()
-    config["model_save_path"] = f"encoder_weights/{data_folder_name}/lidar_encoder_autoencoder_{data_folder_name}.pth"
+    
+    config["model_save_path1"] = f"encoder_weights/{data_folder_name}/lidar_encoder_autoencoder_{data_folder_name}_8.pth" #{global_config["max_lidar_range1"]}
+    config["model_save_path2"] = f"encoder_weights/{data_folder_name}/lidar_encoder_autoencoder_{data_folder_name}_25.pth" #{global_config["max_lidar_range2"]}
     config["hdbscan_model_path"] = f"encoder_weights/{data_folder_name}/hdbscan_model_{data_folder_name}.pkl"
+    config["umap_reducer_path"] = f"encoder_weights/{data_folder_name}/umap_{data_folder_name}.joblib"
     config["scaler_path"] = f"encoder_weights/{data_folder_name}/scaler_{data_folder_name}.pkl"
     config["cluster_centroids_path"] = f"encoder_weights/{data_folder_name}/cluster_centroids_{data_folder_name}.pkl"
     config["train_cluster_map_path"] = f"encoder_weights/{data_folder_name}/train_cluster_to_filepaths_{data_folder_name}.txt"
@@ -931,62 +929,127 @@ def run_autoencoder_and_cluster(data_folder_name, data_pcd_folder, global_config
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    encoder = LidarEncoder(embedding_size=config['embedding_size'])
-    decoder = LidarDecoder(embedding_size=config['embedding_size'], num_ranges=config['num_ranges'])
-    autoencoder = Autoencoder(encoder, decoder).to(device)
-    criterion = nn.MSELoss()
-    optimizer = optim.Adam(autoencoder.parameters(), lr=config['learning_rate'])
+    # Initialize two autoencoder models
+    encoder1 = LidarEncoder(embedding_size=config['embedding_size'])
+    decoder1 = LidarDecoder(embedding_size=config['embedding_size'], num_ranges=config['num_ranges'])
+    autoencoder1 = Autoencoder(encoder1, decoder1).to(device)
+    criterion1 = nn.MSELoss()
+    optimizer1 = optim.Adam(autoencoder1.parameters(), lr=config['learning_rate'])
     
-    # --- 3. Training the Autoencoder ---
-    if os.path.exists(config['model_save_path']):
-        print(f"Existing Autoencoder model found at {config['model_save_path']}. Skipping training.")
-        autoencoder.load_state_dict(torch.load(config['model_save_path'], map_location=device))
+    encoder2 = LidarEncoder(embedding_size=config['embedding_size'])
+    decoder2 = LidarDecoder(embedding_size=config['embedding_size'], num_ranges=config['num_ranges'])
+    autoencoder2 = Autoencoder(encoder2, decoder2).to(device)
+    criterion2 = nn.MSELoss()
+    optimizer2 = optim.Adam(autoencoder2.parameters(), lr=config['learning_rate'])
+
+    # --- 3. Training the Autoencoders ---
+    # Training for the first model (e.g., max_lidar_range1)
+    if os.path.exists(config['model_save_path1']):
+        print(f"Existing Autoencoder model 1 found at {config['model_save_path1']}. Skipping training.")
+        autoencoder1.load_state_dict(torch.load(config['model_save_path1'], map_location=device))
     else:
-        print("No existing Autoencoder model found. Starting training from scratch.")
-        train_dataset = LidarDataset(data_pcd_folder, config)
-        train_dataloader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True, num_workers=4)
-        
-        print("Starting Autoencoder Training...")
+        print("No existing Autoencoder model 1 found. Starting training from scratch.")
+        train_dataset1 = LidarDataset(data_pcd_folder, config, max_range=config['max_lidar_range1'])
+        train_dataloader1 = DataLoader(train_dataset1, batch_size=config['batch_size'], shuffle=True, num_workers=4)
+        print(f"Starting Autoencoder 1 Training for range {config['max_lidar_range1']}...")
         for epoch in range(config['num_epochs']):
-            autoencoder.train()
+            autoencoder1.train()
             total_loss = 0
-            for data in train_dataloader:
+            for data in train_dataloader1:
                 data = data.to(device)
-                reconstructions = autoencoder(data)
-                loss = criterion(reconstructions, data)
-                optimizer.zero_grad()
+                reconstructions = autoencoder1(data)
+                loss = criterion1(reconstructions, data)
+                optimizer1.zero_grad()
                 loss.backward()
-                optimizer.step()
+                optimizer1.step()
                 total_loss += loss.item()
-            avg_loss = total_loss / len(train_dataloader)
-            print(f"Epoch {epoch+1}/{config['num_epochs']}, Average Loss: {avg_loss:.4f}")
+            avg_loss = total_loss / len(train_dataloader1)
+            print(f"Model 1 Epoch {epoch+1}/{config['num_epochs']}, Avg Loss: {avg_loss:.4f}")
         
-        os.makedirs(os.path.dirname(config['model_save_path']), exist_ok=True)
-        torch.save(autoencoder.state_dict(), config['model_save_path'])
-        print(f"Trained Autoencoder saved to {config['model_save_path']}")
-        
-    autoencoder.eval()
+        os.makedirs(os.path.dirname(config['model_save_path1']), exist_ok=True)
+        torch.save(autoencoder1.state_dict(), config['model_save_path1'])
+        print(f"Trained Autoencoder 1 saved to {config['model_save_path1']}")
+
+    # Training for the second model (e.g., max_lidar_range2)
+    if os.path.exists(config['model_save_path2']):
+        print(f"Existing Autoencoder model 2 found at {config['model_save_path2']}. Skipping training.")
+        autoencoder2.load_state_dict(torch.load(config['model_save_path2'], map_location=device))
+    else:
+        print("No existing Autoencoder model 2 found. Starting training from scratch.")
+        train_dataset2 = LidarDataset(data_pcd_folder, config, max_range=config['max_lidar_range2'])
+        train_dataloader2 = DataLoader(train_dataset2, batch_size=config['batch_size'], shuffle=True, num_workers=4)
+        print(f"Starting Autoencoder 2 Training for range {config['max_lidar_range2']}...")
+        for epoch in range(config['num_epochs']):
+            autoencoder2.train()
+            total_loss = 0
+            for data in train_dataloader2:
+                data = data.to(device)
+                reconstructions = autoencoder2(data)
+                loss = criterion2(reconstructions, data)
+                optimizer2.zero_grad()
+                loss.backward()
+                optimizer2.step()
+                total_loss += loss.item()
+            avg_loss = total_loss / len(train_dataloader2)
+            print(f"Model 2 Epoch {epoch+1}/{config['num_epochs']}, Avg Loss: {avg_loss:.4f}")
+
+        os.makedirs(os.path.dirname(config['model_save_path2']), exist_ok=True)
+        torch.save(autoencoder2.state_dict(), config['model_save_path2'])
+        print(f"Trained Autoencoder 2 saved to {config['model_save_path2']}")
+
+    autoencoder1.eval()
+    autoencoder2.eval()
 
     # --- 4. Generate Embeddings for Clustering ---
-    print("\n--- Generating embeddings for training data and performing clustering ---")
-    dataset_for_clustering = LidarDataset(data_pcd_folder, config)
-    dataloader_for_clustering = DataLoader(dataset_for_clustering, batch_size=config['batch_size'], shuffle=False, num_workers=4)
+    print("\n--- Generating and concatenating embeddings for clustering ---")
+    dataset_for_clustering1 = LidarDataset(data_pcd_folder, config, max_range=config['max_lidar_range1'])
+    dataloader_for_clustering1 = DataLoader(dataset_for_clustering1, batch_size=config['batch_size'], shuffle=False, num_workers=4)
+    train_pcd_filenames_full = dataset_for_clustering1.pcd_files # Use this for file mapping
 
-    all_train_embeddings = []
-    train_pcd_filenames_full = dataset_for_clustering.pcd_files
-    
+    all_train_embeddings1 = []
     with torch.no_grad():
-        for data in dataloader_for_clustering:
+        for data in dataloader_for_clustering1:
             data = data.to(device)
-            embeddings = autoencoder.encoder(data)
-            all_train_embeddings.append(embeddings.cpu().numpy())
+            embeddings = autoencoder1.encoder(data)
+            all_train_embeddings1.append(embeddings.cpu().numpy())
+    all_train_embeddings_np1 = np.vstack(all_train_embeddings1)
     
-    all_train_embeddings_np = np.vstack(all_train_embeddings)
-    print(f"Generated {all_train_embeddings_np.shape[0]} embeddings from training data.")
+    dataset_for_clustering2 = LidarDataset(data_pcd_folder, config, max_range=config['max_lidar_range2'])
+    dataloader_for_clustering2 = DataLoader(dataset_for_clustering2, batch_size=config['batch_size'], shuffle=False, num_workers=4)
     
-    # --- 5. Scale Embeddings and Perform HDBSCAN ---
+    all_train_embeddings2 = []
+    with torch.no_grad():
+        for data in dataloader_for_clustering2:
+            data = data.to(device)
+            embeddings = autoencoder2.encoder(data)
+            all_train_embeddings2.append(embeddings.cpu().numpy())
+    all_train_embeddings_np2 = np.vstack(all_train_embeddings2)
+
+    # Concatenate the embeddings from both models
+    concatenated_embeddings = np.concatenate((all_train_embeddings_np1, all_train_embeddings_np2), axis=1)
+    print(f"Concatenated embeddings shape: {concatenated_embeddings.shape}")
+    print(f"Generated {concatenated_embeddings.shape[0]} embeddings from training data.")
+    
+    print(f"Concatenated embeddings shape: {concatenated_embeddings.shape}")
+    print("-" * 50)
+
+    print("Applying UMAP to reduce dimensionality...")
+    reducer = umap.UMAP(n_neighbors=15, n_components=5, random_state=42)
+    reducer.fit(concatenated_embeddings)
+    umap_embeddings = reducer.fit_transform(concatenated_embeddings)
+    print(f"UMAP embeddings shape: {umap_embeddings.shape}")
+    print("-" * 50)
+
+    # --- NEW: Save the fitted UMAP reducer ---
+    os.makedirs(os.path.dirname(config['umap_reducer_path']), exist_ok=True)
+    joblib.dump(reducer, config['umap_reducer_path'])
+    # with open(config['umap_reducer_path'], 'wb') as f:
+    #     pickle.dump(reducer, f)
+    print(f"UMAP reducer model saved to {config['umap_reducer_path']}")
+
+    # --- 5. Scale Embeddings and Perform HDBSCAN on concatenated data ---
     scaler = StandardScaler()
-    scaled_train_embeddings = scaler.fit_transform(all_train_embeddings_np)
+    scaled_train_embeddings = scaler.fit_transform(reducer.embedding_)
     print("Scaled training embeddings.")
     
     os.makedirs(os.path.dirname(config['scaler_path']), exist_ok=True)
@@ -1001,6 +1064,7 @@ def run_autoencoder_and_cluster(data_folder_name, data_pcd_folder, global_config
         core_dist_n_jobs=-1
     )
     train_cluster_labels = cluster_model.fit_predict(scaled_train_embeddings)
+    cluster_model.condensed_tree_.plot()
     
     os.makedirs(os.path.dirname(config['hdbscan_model_path']), exist_ok=True)
     with open(config['hdbscan_model_path'], 'wb') as f:
@@ -1061,30 +1125,30 @@ def run_autoencoder_and_cluster(data_folder_name, data_pcd_folder, global_config
             f.write(f"Cluster {cluster_id}: {', '.join(filenames_in_cluster)}\n")
     print(f"Training cluster mapping saved to: {config['train_cluster_map_path']}")
     
-    labels_file_exists = os.path.exists(config['cluster_labels_mapping_path'])
-    cluster_id_to_label = {}
-    if labels_file_exists and os.stat(config['cluster_labels_mapping_path']).st_size > 2:
-        with open(config['cluster_labels_mapping_path'], 'r') as f:
-            cluster_id_to_label = {int(k): v for k, v in json.load(f).items()}
-        print(f"Loaded existing cluster labels from {config['cluster_labels_mapping_path']}")
-    else:
-        print(f"\nNo existing cluster labels found. Please review the output plot and create the file '{config['cluster_labels_mapping_path']}' with your labels.")
+    # labels_file_exists = os.path.exists(config['cluster_labels_mapping_path'])
+    # cluster_id_to_label = {}
+    # if labels_file_exists and os.stat(config['cluster_labels_mapping_path']).st_size > 2:
+    #     with open(config['cluster_labels_mapping_path'], 'r') as f:
+    #         cluster_id_to_label = {int(k): v for k, v in json.load(f).items()}
+    #     print(f"Loaded existing cluster labels from {config['cluster_labels_mapping_path']}")
+    # else:
+    #     print(f"\nNo existing cluster labels found. Please review the output plot and create the file '{config['cluster_labels_mapping_path']}' with your labels.")
     
-        for cluster_id in sorted(unique_train_clusters):
-            if cluster_id != -1: # Don't display noise clusters for manual labeling
-                print(f"\nViewing samples for Cluster: {cluster_id}")
-                cluster_filenames = cluster_to_train_filepaths[cluster_id]
-                display_cluster_samples(data_pcd_folder, cluster_filenames, cluster_id, 
-                                        3, config)
-            else:
-                print(f"\nSkipping display for Noise Cluster (-1).")
+    #     for cluster_id in sorted(unique_train_clusters):
+    #         if cluster_id != -1: # Don't display noise clusters for manual labeling
+    #             print(f"\nViewing samples for Cluster: {cluster_id}")
+    #             cluster_filenames = cluster_to_train_filepaths[cluster_id]
+    #             display_cluster_samples(data_pcd_folder, cluster_filenames, cluster_id, 
+    #                                     2, config, 25)
+    #         else:
+    #             print(f"\nSkipping display for Noise Cluster (-1).")
         
-        print("\n" + "="*80)
-        print("END OF MANUAL LABELING STEP.")
-        print(f"Please create/edit the file '{config['cluster_labels_mapping_path']}' with your labels.")
-        print("Then, run the script again.")
-        print("="*80)
-        exit() 
+    #     print("\n" + "="*80)
+    #     print("END OF MANUAL LABELING STEP.")
+    #     print(f"Please create/edit the file '{config['cluster_labels_mapping_path']}' with your labels.")
+    #     print("Then, run the script again.")
+    #     print("="*80)
+    #     exit() 
 
     color_map_global = {}
     color_map_global[-1] = np.array([0.2, 0.2, 0.2, 1.0]) # Dark Grey for HDBSCAN Noise
@@ -1107,6 +1171,7 @@ def run_autoencoder_and_cluster(data_folder_name, data_pcd_folder, global_config
         print("Not enough samples for t-SNE. Using original embeddings if 2D or less.")
         train_embeddings_2d = scaled_train_embeddings[:, :2] if scaled_train_embeddings.shape[1] >=2 else scaled_train_embeddings
 
+    cluster_id_to_label = {}
     # Plot each cluster
     for cluster_id in sorted(unique_train_clusters):
         mask = (train_cluster_labels == cluster_id)
@@ -1182,7 +1247,6 @@ def run_autoencoder_and_cluster(data_folder_name, data_pcd_folder, global_config
     ax_dist_plot_train.legend(title="Assigned Cluster", bbox_to_anchor=(1.05, 1), loc='upper left')
     ax_dist_plot_train.grid(True)
 
-
     # --- Second Subplot: All Points in Time by Cluster ID for Training Data ---
     ax_time_series_train.set_title("All Training Data Points by Cluster ID Over Time")
     ax_time_series_train.set_xlabel("Training Data Sample Index")
@@ -1206,63 +1270,51 @@ def run_autoencoder_and_cluster(data_folder_name, data_pcd_folder, global_config
     color_map[-1] = np.array([0.2, 0.2, 0.2, 1.0]) # Noise color
 
     os.makedirs(os.path.dirname(config['output_training_gif_path']), exist_ok=True)
-    generate_cluster_gif(
-        data_pcd_folder,
-        train_pcd_filenames_full,
-        train_cluster_labels,
-        cluster_id_to_label,
-        config['output_training_gif_path'],
-        config['gif_frames_per_second'],
-        config,
-        color_map
-    )
+    # generate_cluster_gif(
+    #     data_pcd_folder,
+    #     train_pcd_filenames_full,
+    #     train_cluster_labels,
+    #     cluster_id_to_label,
+    #     config['output_training_gif_path'],
+    #     config['gif_frames_per_second'],
+    #     config,
+    #     color_maps
+    # )
     print("Process complete.")
 
 # --- Main Script Execution ---
 if __name__ == "__main__":
     # 1. Configuration Parameters
-    training_data_name = "bridge2_carla"
-    training_pcd_folder = f"../../../../carla_data/{training_data_name}/{training_data_name}_pcds"
+    training_data_name = "full_bag"
+    training_pcd_folder = f"/home/akilasar/ros2_ws/{training_data_name}/{training_data_name}_pcds"
+    #training_pcd_folder = f"../../../../carla_data/{training_data_name}/{training_data_name}_pcds"
     
     # Define and centralize all hyperparameters and paths
     global_config = {
         "embedding_size": 16,
         "num_ranges": 32,
         "angle_increment_deg": float(360.0 / 32),
-        "max_lidar_range": 20.0,
+        "max_lidar_range1": 8.0,
+        "max_lidar_range2": 25,
         "z_threshold_upper": 2.25,
-        "z_threshold_lower": 2,
+        "z_threshold_lower": 0,
         "z_threshold_upper_2": 0,
         "z_threshold_lower_2": 0,
         "num_epochs": 100,
         "batch_size": 32,
         "learning_rate": 0.001,
-        "hdbscan_min_cluster_size": 8,
-        "hdbscan_cluster_selection_epsilon": 0.0,
-        "num_samples_to_show_per_cluster": 3,
+        "hdbscan_min_cluster_size": 15,
+        "hdbscan_cluster_selection_epsilon":0.5,
+        "num_samples_to_show_per_cluster": 2,
         "gif_frames_per_second": 15,
     }
 
-    # Run the main function for the training data
-    run_autoencoder_and_cluster(training_data_name, training_pcd_folder, global_config)
+    run_autoencoder_and_cluster(training_data_name, training_pcd_folder, global_config) 
 
-    # -----------------------------------------------------------
-    # Test Directory Integration
-    # -----------------------------------------------------------
+########
 
     def run_inference_on_test_data(test_data_name, test_pcd_folder, training_data_name, global_config, z_thresholds_for_test=None):
-        """
-        Performs inference on a new test dataset using pre-trained models.
-
-        Args:
-            test_data_name (str): The name of the test dataset.
-            test_pcd_folder (str): The path to the folder with test PCD files.
-            training_data_name (str): The name of the original training dataset to load models from.
-            global_config (dict): The dictionary of all configuration parameters.
-            z_thresholds_for_test (tuple, optional): A tuple of (z_upper_1, z_lower_1, z_upper_2, z_lower_2)
-                                                     to be used specifically for visualization of the test data.
-                                                     If None, the global_config values are used.
-        """
+        
         print(f"\n--- Starting inference for test dataset: {test_data_name} ---")
 
         # Define artifact paths based on the training data name
@@ -1312,8 +1364,31 @@ if __name__ == "__main__":
         all_test_embeddings_np = np.vstack(all_test_embeddings)
         print(f"Generated {all_test_embeddings_np.shape[0]} embeddings from test data.")
         
+        
+        print(f"Concatenated embeddings shape: {all_test_embeddings_np.shape}")
+        print("-" * 50)
+
+        # --- Step 2: Apply UMAP for Dimensionality Reduction ---
+        # We will reduce the 32-dimensional vectors to a lower, more manageable dimension.
+        # A dimension of 5 is a good starting point for HDBSCAN.
+
+        print("Applying UMAP to reduce dimensionality...")
+        random_state = 42
+
+        # Initialize UMAP with a target number of dimensions (e.g., 5)
+        # n_neighbors is a crucial parameter, tune it based on your dataset size.
+        # A higher value considers more neighbors and can find more global structure.
+        # A lower value focuses on local structure.
+        reducer = umap.UMAP(n_neighbors=15, n_components=5, random_state=random_state)
+
+        # Fit and transform the data
+        umap_embeddings = reducer.fit_transform(all_test_embeddings_np)
+
+        print(f"UMAP embeddings shape: {umap_embeddings.shape}")
+        print("-" * 50)
+        
         # Scale embeddings using the pre-trained scaler
-        scaled_test_embeddings = scaler.transform(all_test_embeddings_np)
+        scaled_test_embeddings = scaler.transform(umap_embeddings)
         print("Scaled test embeddings using the pre-trained scaler.")
 
         # Predict clusters using HDBSCAN's prediction function
@@ -1486,7 +1561,8 @@ if __name__ == "__main__":
             global_config['gif_frames_per_second'],
             global_config,
             color_map_test,
-            z_thresholds_gif=z_thresholds_for_test
+            z_thresholds_gif=z_thresholds_for_test,
+            max_range=8
         )
         print("Test inference process complete.")
 

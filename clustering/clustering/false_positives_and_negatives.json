@@ -1,0 +1,52 @@
+{
+    "Along Wall": {
+        "False Positives": 14,
+        "False Negatives": 54,
+        "True Positives": 223
+    },
+    "Around Corner": {
+        "False Positives": 0,
+        "False Negatives": 9,
+        "True Positives": 111
+    },
+    "Enter Intersection/Exit Bridge": {
+        "False Positives": 20,
+        "False Negatives": 110,
+        "True Positives": 230
+    },
+    "Exit Intersection/Enter Bridge": {
+        "False Positives": 27,
+        "False Negatives": 55,
+        "True Positives": 195
+    },
+    "In Intersection": {
+        "False Positives": 40,
+        "False Negatives": 87,
+        "True Positives": 283
+    },
+    "On Bridge": {
+        "False Positives": 14,
+        "False Negatives": 15,
+        "True Positives": 275
+    },
+    "Open Space": {
+        "False Positives": 6,
+        "False Negatives": 0,
+        "True Positives": 234
+    },
+    "Past Building": {
+        "False Positives": 9,
+        "False Negatives": 4,
+        "True Positives": 76
+    },
+    "Road": {
+        "False Positives": 159,
+        "False Negatives": 22,
+        "True Positives": 768
+    },
+    "unlabeled": {
+        "False Positives": 67,
+        "False Negatives": 0,
+        "True Positives": 0
+    }
+}

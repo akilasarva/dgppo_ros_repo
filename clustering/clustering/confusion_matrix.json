@@ -1,0 +1,122 @@
+{
+    "Along Wall": {
+        "Along Wall": 223,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 17,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 6,
+        "Past Building": 0,
+        "Road": 0,
+        "unlabeled": 31
+    },
+    "Around Corner": {
+        "Along Wall": 2,
+        "Around Corner": 111,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 0,
+        "unlabeled": 7
+    },
+    "Enter Intersection/Exit Bridge": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 230,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 31,
+        "On Bridge": 6,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 68,
+        "unlabeled": 5
+    },
+    "Exit Intersection/Enter Bridge": {
+        "Along Wall": 8,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 195,
+        "In Intersection": 9,
+        "On Bridge": 8,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 30,
+        "unlabeled": 0
+    },
+    "In Intersection": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 7,
+        "Exit Intersection/Enter Bridge": 10,
+        "In Intersection": 283,
+        "On Bridge": 0,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 61,
+        "unlabeled": 9
+    },
+    "On Bridge": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 275,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 0,
+        "unlabeled": 15
+    },
+    "Open Space": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 234,
+        "Past Building": 0,
+        "Road": 0,
+        "unlabeled": 0
+    },
+    "Past Building": {
+        "Along Wall": 4,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 0,
+        "Past Building": 76,
+        "Road": 0,
+        "unlabeled": 0
+    },
+    "Road": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 13,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 0,
+        "Past Building": 9,
+        "Road": 768,
+        "unlabeled": 0
+    },
+    "unlabeled": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 0,
+        "unlabeled": 0
+    }
+}

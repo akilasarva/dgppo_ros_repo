@@ -40,7 +40,7 @@ def visualize_low_altitude_points_gif(folder_path,
     images = []
     num_angles = int(360 / angle_increment_deg)
 
-    for file_name in pcd_files:
+    for file_name in pcd_files[1500::3]:
         file_path = os.path.join(folder_path, file_name)
 
         try:
@@ -142,6 +142,7 @@ def visualize_low_altitude_points_gif(folder_path,
     else:
         print("No images were generated. GIF not created.")
 
+
 # # Example Usage
 # folder_path = "../../../../carla_data/bridge2_carla/bridge2_carla_pcds"
 # visualize_low_altitude_points_gif(folder_path, 
@@ -178,14 +179,24 @@ def visualize_low_altitude_points_gif(folder_path,
 #                                   max_range=20.0,
 #                                   angle_increment_deg=5)
 
+# # Example Usage
+# folder_path = "../../../../carla_data/building1_carla/building1_carla_pcds"
+# visualize_low_altitude_points_gif(folder_path, 
+#                                   output_gif_path="low_altitude_points_with_footprint.gif",
+#                                   z_threshold_lower=1.8, z_threshold_upper=2.1, # First slice (e.g., ground)
+#                                   z_threshold_lower_2=0, z_threshold_upper_2=0, # Second slice (e.g., table top)
+#                                   max_range=15.0,
+#                                   angle_increment_deg=5)
+
 # Example Usage
-folder_path = "../../../../carla_data/building1_carla/building1_carla_pcds"
+folder_path = "/home/akilasar/ros2_ws/full_bag/full_bag_pcds"
 visualize_low_altitude_points_gif(folder_path, 
                                   output_gif_path="low_altitude_points_with_footprint.gif",
-                                  z_threshold_lower=1.8, z_threshold_upper=2.1, # First slice (e.g., ground)
+                                  z_threshold_lower=0, z_threshold_upper=5, # First slice (e.g., ground)
                                   z_threshold_lower_2=0, z_threshold_upper_2=0, # Second slice (e.g., table top)
-                                  max_range=15.0,
+                                  max_range=25.0,
                                   angle_increment_deg=5)
+
 
 
 
