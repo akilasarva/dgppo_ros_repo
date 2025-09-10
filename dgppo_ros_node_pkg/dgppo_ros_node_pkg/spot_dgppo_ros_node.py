@@ -16,7 +16,15 @@ from geometry_msgs.msg import Twist
 from std_msgs.msg import Int16, Float32MultiArray
 from nav_msgs.msg import Odometry
 
-import carla
+# Boston Dynamics 
+import bosdyn.client.util 
+from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient)
+from bosdyn.client.frame_helpers import (
+    BODY_FRAME_NAME,
+    VISION_FRAME_NAME,
+    get_se2_a_tform_b,
+)
+
 import time
 
 # DGPPO and LidarEnv components
@@ -85,28 +93,14 @@ class DGPPOROSNode(Node):
         self.rng_key = jr.PRNGKey(config.get('seed', 0))
         self.rnn_state = self.algo.init_rnn_state
 
-        # State variable for the main fix
         self.current_agent_state = None
-
         self.latest_ranges_msg = None
-        self.latest_agent_state_msg = None
+        self.latest_agent_state = None
         self.latest_predicted_cluster_id = None
         self.next_cluster_bonus_awarded = jnp.zeros(self.env_instance.num_agents, dtype=jnp.bool_)
         
         self.is_vehicle_ready = False
         self.is_first_run = True
-
-        self.carla_client = carla.Client('localhost', 2000)
-        self.carla_client.set_timeout(10.0)
-        self.world = self.carla_client.get_world()
-        self.ego_vehicle = None
-        
-        self.agent_state_sub = self.create_subscription(
-            Odometry,
-            '/carla/ego_vehicle/odometry',
-            self.agent_state_callback,
-            10
-        )
         
         self.ranges_sub = self.create_subscription(
             Float32MultiArray,
@@ -122,9 +116,9 @@ class DGPPOROSNode(Node):
             10
         )
         
-        self.scale_2d_3d = 47.0
-        self.origin_x = 55.0
-        self.origin_y = -210.0
+        self.scale_2d_3d = 11 
+        self.origin_x = TODO
+        self.origin_y = TODO
 
         self.timer = self.create_timer(0.1, self.control_loop)
         
@@ -132,6 +126,47 @@ class DGPPOROSNode(Node):
         self.get_logger().info("Default mode: Listening for predicted cluster ID on /predicted_cluster_id.")
         self.get_logger().info("To activate debug mode: 'ros2 param set /dgppo_ros_node debug_mode true'")
         self.get_logger().info("When in debug mode: 'ros2 param set /dgppo_ros_node current_cluster_id <new_id>'")
+
+        # yveys: Here we can initialize the Spot robot.
+        self.get_logger().info("Initializing the Spot robot.")
+        self.sdk = bosdyn.client.create_standard_sdk("understanding-spot")
+        self.robot = self.sdk.create_robot(ip="10.0.0.3")
+        self.robot.authenticate(username="TODO", password="TODO")
+
+        self.state_client = self.robot.ensure("robot-state")
+        self.lease_client = self.robot.ensure_client("lease")
+        self.command_client = self.robot.ensure_client(RobotCommandClient.default_service_name)
+
+        # yveys: Take the lease from the tablet. 
+        self.lease_client.take()
+        self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(self.lease_client)
+
+        self.get_logger().info("Current state")
+        self.get_logger().info(self.state_client.get_robot_state())
+
+    # yveys: Spot get_state function for easier access. 
+    def _get_spot_state(self): 
+        # This function returns a tuple of Points that represents the pos and velocity of the robot 
+        def Point(x, y): 
+            self.x = x
+            self.y = y 
+
+        robot_state = self.state_client.get_robot_state()
+        kinematic_state = robot_state.kinematic_state
+
+        pos_transforms = kinematic_state.transforms_snapshot
+
+        assert str(pos_transforms) != ""
+
+        tform_body_in_vision = get_se2_a_tform_b(
+            pos_transforms, VISION_FRAME_NAME, BODY_FRAME_NAME
+        )
+
+        pos = Point(tform_body_in_vision.x, tform_body_in_vision.y)
+
+        vel = Point(kinematic_state.velocity_of_body_in_vision.linear.x, kinematic_state.velocity_of_body_in_vision.linear.y)
+
+        return pos, vel 
 
     def _get_model_step(self, model_dir):
         model_path = os.path.join(model_dir, "models")
@@ -152,52 +187,54 @@ class DGPPOROSNode(Node):
             # Assuming the JSON file now contains a 'centroids' key
             return data.get("plan_sequence", []), data.get("bearing_map", {}), data.get("centroids", {})
 
-    # def _map_cluster_id(self, cluster_id: int) -> int:
-    #     self.get_logger().info(f"cluster id: {cluster_id}")
-    #     if cluster_id in [0, 2]:
-    #         return 1
-    #     elif cluster_id in [3, 4, 5]:
-    #         return 2
-    #     elif cluster_id in [0, 6]:
-    #         return 3
-    #     elif cluster_id in [1, 2]:
-    #         return 0
-    #     else:
-    #         return cluster_id
-    
+    #### BRIDGE
     def _map_cluster_id(self, cluster_id: int) -> int:
         self.get_logger().info(f"cluster id: {cluster_id}")
-        if cluster_id in [4, 5, 6]:
+        if cluster_id in [0, 2]:
             return 1
-        elif cluster_id in [0, 1, 2]:
+        elif cluster_id in [3, 4, 5]:
             return 2
-        # elif cluster_id in [0, 6]:
-        #     return 3
-        # elif cluster_id in [1, 2]:
-        #     return 0
+        elif cluster_id in [0, 6]:
+            return 3
+        elif cluster_id in [1, 2]:
+            return 0
         else:
             return cluster_id
+    
+    ### Intersection
+    # def _map_cluster_id(self, cluster_id: int) -> int:
+    #     self.get_logger().info(f"cluster id: {cluster_id}")
+    #     if cluster_id in [4, 5, 6]:
+    #         return 1
+    #     elif cluster_id in [0, 1, 2]:
+    #         return 2
+    #     # elif cluster_id in [0, 6]:
+    #     #     return 3
+    #     # elif cluster_id in [1, 2]:
+    #     #     return 0
+    #     else:
+    #         return cluster_id
 
     def ranges_callback(self, msg: Float32MultiArray):
         self.latest_ranges_msg = msg
 
-    def agent_state_callback(self, msg: Odometry):
-        self.latest_agent_state_msg = msg
+    # def agent_state_callback(self, msg: Odometry):
+    #     self.latest_agent_state_msg = msg
 
     def predicted_cluster_callback(self, msg: Int16):
         self.latest_predicted_cluster_id = msg.data
 
     def control_loop(self):
-        if not self.is_vehicle_ready:
-            self.get_logger().info("Waiting for ego vehicle to be spawned...")
-            actors = self.world.get_actors()
-            vehicles = actors.filter("*vehicle*")
-            if vehicles:
-                self.ego_vehicle = vehicles[0]
-                self.is_vehicle_ready = True
-                self.get_logger().info("Ego vehicle found. Starting control loop.")
-            else:
-                return # Keep waiting
+        # if not self.is_vehicle_ready:
+        #     self.get_logger().info("Waiting for ego vehicle to be spawned...")
+        #     actors = self.world.get_actors()
+        #     vehicles = actors.filter("*vehicle*")
+        #     if vehicles:
+        #         self.ego_vehicle = vehicles[0]
+        #         self.is_vehicle_ready = True
+        #         self.get_logger().info("Ego vehicle found. Starting control loop.")
+        #     else:
+        #         return # Keep waiting
 
         # New logic to handle the initial state based on cluster centroids
         if self.is_first_run:
@@ -210,7 +247,7 @@ class DGPPOROSNode(Node):
                     scaled_pos_x_model = (centroid[1] - self.origin_y) / self.scale_2d_3d
                     scaled_pos_y_model = (centroid[0] - self.origin_x) / self.scale_2d_3d
                     scaled_agent_state_np = np.array([scaled_pos_x_model, scaled_pos_y_model, 0.0, 0.0], dtype=np.float32)
-                    self.current_agent_state = jnp.expand_dims(jnp.array(scaled_agent_state_np), axis=0)
+                    self.latest_agent_state = jnp.expand_dims(jnp.array(scaled_agent_state_np), axis=0)
                 else:
                     self.get_logger().error(f"Centroid for cluster {start_cluster_id} not found in plan data!")
                     return
@@ -219,11 +256,9 @@ class DGPPOROSNode(Node):
         debug_mode = self.get_parameter('debug_mode').get_parameter_value().bool_value
         
         if self.current_plan_step_index >= len(self.plan_sequence):
+            # yveys: Tell the robot to stop moving.
             self.get_logger().info("High-level plan is complete. Stopping control loop.")
-            current_transform = self.ego_vehicle.get_transform()
-            self.ego_vehicle.set_transform(current_transform)
-            self.ego_vehicle.set_target_velocity(carla.Vector3D(0,0,0))
-            self.ego_vehicle.set_target_angular_velocity(carla.Vector3D(0,0,0))
+            self.command_client.robot_command(command=RobotCommandBuilder.stop_command())
             self.timer.cancel()
             return
 
@@ -231,7 +266,7 @@ class DGPPOROSNode(Node):
         expected_start_cluster = current_plan_step["start"]
         expected_next_cluster = current_plan_step["next"]
 
-        if self.latest_ranges_msg is None or self.latest_agent_state_msg is None:
+        if self.latest_ranges_msg is None:
             self.get_logger().warning("Waiting for sensor data...")
             return
 
@@ -257,18 +292,31 @@ class DGPPOROSNode(Node):
         if self.current_plan_step_index >= len(self.plan_sequence):
             return
 
+        self.rng_key, action_key = jr.split(self.rng_key)
         scaled_ranges_np = np.array(self.latest_ranges_msg.data, dtype=np.float32) / self.scale_2d_3d
         
+        self.rnn_state = new_rnn_state
+        action = self.clip_action(action)
+        
+        pos, vel = self._get_spot_state()
+        sim_pos_x = -pos.y      # Spot's Y (left) -> Sim's X (right)
+        sim_pos_y = pos.x       # Spot's X (front) -> Sim's Y (front)
+
+        sim_vel_x = -vel.y      # Spot's Y-vel -> Sim's X-vel
+        sim_vel_y = vel.x       # Spot's X-vel -> Sim's Y-vel
+
+        scaled_latest_state_np = np.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=np.float32) / self.scale_2d_3d
+        self.latest_agent_state = jnp.expand_dims(jnp.array(scaled_latest_state_np), axis=0)
+        self.get_logger().info(f"Sim agent state: {self.latest_agent_state}")
+        
         graph = self._build_state_and_graph(
-            self.current_agent_state,
-            scaled_ranges_np,
+            self.latest_agent_state, # scaled state from Spot
+            scaled_ranges_np, # scaled lidar ranges from Spot
             mapped_current_cluster,
             expected_start_cluster,
             expected_next_cluster,
             self.next_cluster_bonus_awarded
         )
-
-        self.rng_key, action_key = jr.split(self.rng_key)
         
         action, new_rnn_state = self.algo.act(
             graph=graph,
@@ -276,14 +324,8 @@ class DGPPOROSNode(Node):
             params={'policy': self.algo.policy_train_state.params}
         )
 
-        self.rnn_state = new_rnn_state
-        action = self.clip_action(action)
-        
-        # Calculate the next state in the small frame and store it for the next loop
-        self.current_agent_state = self.agent_step_euler(self.current_agent_state, action)
-        
-        next_state_small_frame_squeezed = jnp.squeeze(self.current_agent_state, axis=0)
-        
+        new_movement_targets = jnp.squeeze(self.agent_step_euler(self.latest_agent_state, action), axis=0) # proposed pos and vel
+                
         reward, bonus_awarded_updated = self.env_instance.get_reward(graph, action)
         
         # FIX: Check for empty array and reset it
@@ -294,18 +336,43 @@ class DGPPOROSNode(Node):
             self.next_cluster_bonus_awarded = bonus_awarded_updated
 
         # Scale the next position back up and add the origin
-        next_pos_x_carla = next_state_small_frame_squeezed[1] * self.scale_2d_3d + self.origin_x
-        next_pos_y_carla = next_state_small_frame_squeezed[0] * self.scale_2d_3d + self.origin_y
+        v_x_target = new_movement_targets[3] * self.scale_2d_3d #+ self.origin_x
+        v_y_target = -1*new_movement_targets[2] * self.scale_2d_3d #+ self.origin_y
         
-        new_location = carla.Location(x=float(next_pos_x_carla), y=float(-1*next_pos_y_carla), z=self.ego_vehicle.get_transform().location.z)
-        new_transform = carla.Transform(new_location, self.ego_vehicle.get_transform().rotation)
-        
-        self.teleport_and_wait(new_transform)
+        velocity_command = RobotCommandBuilder.synchro_velocity_command(v_x=v_x_target, v_y=v_y_target)
+        self.command_client.robot_command(command=velocity_command)
 
         self.get_logger().info(f"Action: {action}")
-        self.get_logger().info(f"Teleporting to X: {next_pos_x_carla}, Y: {next_pos_y_carla}")
-        self.get_logger().info("2d ranges: {}".format(scaled_ranges_np))
-        self.get_logger().info("3d ranges: {}".format(self.latest_ranges_msg))
+        self.get_logger().info(f"Vel X: {v_x_target}, Vel Y: {v_y_target}")
+        # self.get_logger().info("2d ranges: {}".format(scaled_ranges_np))
+        # self.get_logger().info("3d ranges: {}".format(self.latest_ranges_msg))
+        
+    def agent_step_euler(self, agent_states: AgentState, action: Action) -> AgentState:
+        """By default, use double integrator dynamics"""
+        assert action.shape == (self.env_instance.num_agents, self.env_instance.action_dim)
+        assert agent_states.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
+        x_dot = jnp.concatenate([agent_states[:, 2:], action * 10.], axis=1)
+        n_state_agent_new = x_dot * self.dt + agent_states
+        assert n_state_agent_new.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
+        return self.clip_state(n_state_agent_new)
+    
+    def state_lim(self) -> Tuple[State, State]:
+        lower_lim = jnp.array([0., 0., -0.5, -0.5])
+        upper_lim = jnp.array([self.twod_area_size, self.twod_area_size, 0.5, 0.5])
+        return lower_lim, upper_lim
+
+    def action_lim(self) -> Tuple[Action, Action]:
+        lower_lim = jnp.ones(2) * -1.0
+        upper_lim = jnp.ones(2)
+        return lower_lim, upper_lim
+    
+    def clip_state(self, state: State) -> State:
+        lower_limit, upper_limit = self.state_lim()
+        return jnp.clip(state, lower_limit, upper_limit)
+
+    def clip_action(self, action: Action) -> Action:
+        lower_limit, upper_limit = self.action_lim()
+        return jnp.clip(action, lower_limit, upper_limit)
 
     def _build_state_and_graph(self, agent_state_np: np.ndarray, scaled_ranges: np.ndarray, mapped_current_cluster_id: int, mapped_start_cluster_id: int, mapped_next_cluster_id: int, bonus_awarded_updated: jnp.ndarray)  -> GraphsTuple:
         self.get_logger().info(f"Agent state (scaled): {agent_state_np}")
@@ -345,12 +412,6 @@ class DGPPOROSNode(Node):
         self.get_logger().info(f"Start: {mapped_start_cluster_id}, Current: {mapped_current_cluster_id}, Next: {mapped_next_cluster_id}, Bearing: {bearing_value}")
         
         goal_state_np = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
-        
-        inter_center_env_state: Float[Array, "2"] = jnp.array([0.0, 0.0])
-        passage_width_env_state: Float[Array, ""] = jnp.array(0.0)
-        obs_len_env_state: Float[Array, ""] = jnp.array(0.0)
-        global_angle_env_state: Float[Array, ""] = jnp.array(0.0)
-        is_four_way_env_state: bool = False
 
         env_state = LidarEnvState(
             agent=agent_state_np, 
@@ -361,56 +422,20 @@ class DGPPOROSNode(Node):
             start_cluster_oh = jnp.array([start_cluster_oh]),
             next_cluster_oh=jnp.array([next_cluster_oh]),
             next_cluster_bonus_awarded=bonus_awarded_updated,
-            # bridge_center=jnp.zeros((0,2)),
-            # bridge_length=jnp.zeros((0,)),
-            # bridge_gap_width=jnp.zeros((0,)),
-            # bridge_wall_thickness=jnp.zeros((0,)),
-            # bridge_theta=jnp.zeros((0,))
-            is_four_way=is_four_way_env_state,
-            center=inter_center_env_state,
-            passage_width=passage_width_env_state,
-            obs_len=obs_len_env_state,
-            global_angle=global_angle_env_state
+            bridge_center=jnp.zeros((0,2)),
+            bridge_length=jnp.zeros((0,)),
+            bridge_gap_width=jnp.zeros((0,)),
+            bridge_wall_thickness=jnp.zeros((0,)),
+            bridge_theta=jnp.zeros((0,))
+            # is_four_way=False,
+            # center=jnp.array([0.0, 0.0]),
+            # passage_width=jnp.array(0.0),
+            # obs_len=jnp.array(0.0),
+            # global_angle=jnp.array(0.0)
         )
 
         graph = self.env_instance.get_graph(env_state, jnp.array(final_lidar_data))
         return graph
-    
-    def teleport_and_wait(self, transform: carla.Transform):
-        self.ego_vehicle.set_simulate_physics(False)
-        self.ego_vehicle.set_transform(transform)
-        self.ego_vehicle.set_target_velocity(carla.Vector3D(0,0,0))
-        self.ego_vehicle.set_target_angular_velocity(carla.Vector3D(0,0,0))
-        time.sleep(self.dt)
-    
-    def agent_step_euler(self, agent_states: AgentState, action: Action) -> AgentState:
-        """By default, use double integrator dynamics"""
-        assert action.shape == (self.env_instance.num_agents, self.env_instance.action_dim)
-        print(agent_states.shape)
-        print((self.env_instance.num_agents, self.env_instance.state_dim))
-        assert agent_states.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
-        x_dot = jnp.concatenate([agent_states[:, 2:], action * 10.], axis=1)
-        n_state_agent_new = x_dot * self.dt + agent_states
-        assert n_state_agent_new.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
-        return self.clip_state(n_state_agent_new)
-    
-    def state_lim(self) -> Tuple[State, State]:
-        lower_lim = jnp.array([0., 0., -0.5, -0.5])
-        upper_lim = jnp.array([self.twod_area_size, self.twod_area_size, 0.5, 0.5])
-        return lower_lim, upper_lim
-
-    def action_lim(self) -> Tuple[Action, Action]:
-        lower_lim = jnp.ones(2) * -1.0
-        upper_lim = jnp.ones(2)
-        return lower_lim, upper_lim
-    
-    def clip_state(self, state: State) -> State:
-        lower_limit, upper_limit = self.state_lim()
-        return jnp.clip(state, lower_limit, upper_limit)
-
-    def clip_action(self, action: Action) -> Action:
-        lower_limit, upper_limit = self.action_lim()
-        return jnp.clip(action, lower_limit, upper_limit)
 
 def main(args=None):
     rclpy.init(args=args)
