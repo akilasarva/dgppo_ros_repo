@@ -25,6 +25,7 @@ setup(
     entry_points={
     'console_scripts': [
         'dgppo_ros_node = dgppo_ros_node_pkg.dgppo_ros_node:main',
-    ],
+        'carla_bridge_node = dgppo_ros_node_pkg.carla_bridge_node:main',
+        ],
 },
 )

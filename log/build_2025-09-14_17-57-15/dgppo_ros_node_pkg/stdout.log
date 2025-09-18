@@ -1,0 +1,300 @@
+running egg_info
+creating ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info
+writing ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/PKG-INFO
+writing dependency_links to ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/dependency_links.txt
+writing entry points to ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/entry_points.txt
+writing requirements to ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/requires.txt
+writing top-level names to ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/top_level.txt
+writing manifest file '../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/SOURCES.txt'
+reading manifest file '../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/SOURCES.txt'
+writing manifest file '../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg
+copying dgppo_ros_node_pkg/old_spot_dgppo_node.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg
+copying dgppo_ros_node_pkg/new_dgppo_ros_node.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg
+copying dgppo_ros_node_pkg/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg
+copying dgppo_ros_node_pkg/carla_bridge_node.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg
+copying dgppo_ros_node_pkg/dgppo_ros_node.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo
+copying dgppo_ros_node_pkg/dgppo/setup.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo
+copying dgppo_ros_node_pkg/dgppo/og_train.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo
+copying dgppo_ros_node_pkg/dgppo/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo
+copying dgppo_ros_node_pkg/dgppo/test.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo
+copying dgppo_ros_node_pkg/dgppo/train.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo
+copying dgppo_ros_node_pkg/dgppo/dgppo/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying dgppo_ros_node_pkg/dgppo/dgppo/trainer/data.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying dgppo_ros_node_pkg/dgppo/dgppo/trainer/utils.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying dgppo_ros_node_pkg/dgppo/dgppo/trainer/buffer.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying dgppo_ros_node_pkg/dgppo/dgppo/trainer/trainer.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying dgppo_ros_node_pkg/dgppo/dgppo/trainer/og_trainer.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying dgppo_ros_node_pkg/dgppo/dgppo/trainer/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying dgppo_ros_node_pkg/dgppo/dgppo/nn/mlp.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying dgppo_ros_node_pkg/dgppo/dgppo/nn/rnn.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying dgppo_ros_node_pkg/dgppo/dgppo/nn/utils.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying dgppo_ros_node_pkg/dgppo/dgppo/nn/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying dgppo_ros_node_pkg/dgppo/dgppo/nn/gnn.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/og_plot.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/obstacle.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/behavior_associator.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/inter_ba.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/utils.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/building_plot.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/building_behavior_associator.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/bridge_behavior_associator.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/old_plot.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/bridge_plot.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/intersection_behavior_associator.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/base.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/informarl.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/dgppo.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/utils.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/hcbfcrpo.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/og_informarl_lagr.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/informarl_lagr.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/base.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/utils
+copying dgppo_ros_node_pkg/dgppo/dgppo/utils/utils.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/utils
+copying dgppo_ros_node_pkg/dgppo/dgppo/utils/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/utils
+copying dgppo_ros_node_pkg/dgppo/dgppo/utils/graph.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/utils
+copying dgppo_ros_node_pkg/dgppo/dgppo/utils/typing.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/utils
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/waypointless_base.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_line.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_bicycle_target.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/waypointless_lidar_target.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/og_base.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_spread.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_target.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/og_lidar_target.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/old_lt.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/base.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/vmas_wheel.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/vmas_reverse_transport.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_corridor.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_formation.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_connect_spread.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_line.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_target.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_spread.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/base.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/vmas_utils.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/jax_types.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/geometry.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/world.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/jax_utils.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/shapes.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/entity.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/raycast.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+creating /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/module
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/module/distribution.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/module
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/module/policy.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/module
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/module/value.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/module
+copying dgppo_ros_node_pkg/dgppo/dgppo/algo/module/__init__.py -> /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/module
+running install
+running install_lib
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/old_spot_dgppo_node.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/new_dgppo_ros_node.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/carla_bridge_node.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo_ros_node.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/setup.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/og_train.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/test.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/train.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer/data.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer/utils.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer/buffer.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer/trainer.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer/og_trainer.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/trainer/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn/mlp.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn/rnn.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn/utils.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/nn/gnn.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/og_plot.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/waypointless_base.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_line.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_bicycle_target.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/waypointless_lidar_target.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/og_base.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_spread.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_target.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/og_lidar_target.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/old_lt.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/base.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/obstacle.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/behavior_associator.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/inter_ba.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/utils.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/building_plot.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/building_behavior_associator.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/bridge_behavior_associator.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/vmas_wheel.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/vmas_utils.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/jax_types.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/geometry.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/world.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/jax_utils.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/shapes.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/entity.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/raycast.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/vmas_reverse_transport.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/old_plot.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/bridge_plot.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_corridor.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_formation.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_connect_spread.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_line.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_target.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_spread.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/base.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/intersection_behavior_associator.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/env/base.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/module
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/module/distribution.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/module
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/module/policy.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/module
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/module/value.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/module
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/module/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/module
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/informarl.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/dgppo.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/utils.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/hcbfcrpo.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/og_informarl_lagr.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/informarl_lagr.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/algo/base.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/utils
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/utils/utils.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/utils
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/utils/__init__.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/utils
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/utils/graph.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/utils
+copying /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build/lib/dgppo_ros_node_pkg/dgppo/dgppo/utils/typing.py -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/utils
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/old_spot_dgppo_node.py to old_spot_dgppo_node.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/new_dgppo_ros_node.py to new_dgppo_ros_node.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/carla_bridge_node.py to carla_bridge_node.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo_ros_node.py to dgppo_ros_node.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/setup.py to setup.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/og_train.py to og_train.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/test.py to test.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/train.py to train.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer/data.py to data.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer/utils.py to utils.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer/buffer.py to buffer.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer/trainer.py to trainer.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer/og_trainer.py to og_trainer.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/trainer/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn/mlp.py to mlp.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn/rnn.py to rnn.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn/utils.py to utils.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/nn/gnn.py to gnn.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/og_plot.py to og_plot.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/waypointless_base.py to waypointless_base.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_line.py to lidar_line.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_bicycle_target.py to lidar_bicycle_target.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/waypointless_lidar_target.py to waypointless_lidar_target.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/og_base.py to og_base.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_spread.py to lidar_spread.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/lidar_target.py to lidar_target.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/og_lidar_target.py to og_lidar_target.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/old_lt.py to old_lt.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/lidar_env/base.py to base.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/obstacle.py to obstacle.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/behavior_associator.py to behavior_associator.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/inter_ba.py to inter_ba.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/utils.py to utils.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/building_plot.py to building_plot.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/building_behavior_associator.py to building_behavior_associator.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/bridge_behavior_associator.py to bridge_behavior_associator.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/vmas_wheel.py to vmas_wheel.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/vmas_utils.py to vmas_utils.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/jax_types.py to jax_types.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/geometry.py to geometry.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/world.py to world.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/jax_utils.py to jax_utils.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/shapes.py to shapes.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/entity.py to entity.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/physax/raycast.py to raycast.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/vmas/vmas_reverse_transport.py to vmas_reverse_transport.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/old_plot.py to old_plot.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/bridge_plot.py to bridge_plot.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_corridor.py to mpe_corridor.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_formation.py to mpe_formation.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_connect_spread.py to mpe_connect_spread.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_line.py to mpe_line.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_target.py to mpe_target.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/mpe_spread.py to mpe_spread.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/mpe/base.py to base.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/intersection_behavior_associator.py to intersection_behavior_associator.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/env/base.py to base.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/module/distribution.py to distribution.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/module/policy.py to policy.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/module/value.py to value.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/module/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/informarl.py to informarl.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/dgppo.py to dgppo.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/utils.py to utils.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/hcbfcrpo.py to hcbfcrpo.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/og_informarl_lagr.py to og_informarl_lagr.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/informarl_lagr.py to informarl_lagr.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/algo/base.py to base.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/utils/utils.py to utils.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/utils/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/utils/graph.py to graph.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg/dgppo/dgppo/utils/typing.py to typing.cpython-312.pyc
+running install_data
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/ament_index
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/ament_index/resource_index
+creating /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/ament_index/resource_index/packages
+copying resource/dgppo_ros_node_pkg -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/ament_index/resource_index/packages
+copying package.xml -> /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg
+running install_egg_info
+Copying ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info to /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg-0.0.0-py3.12.egg-info
+running install_scripts
+Installing carla_bridge_node script to /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/dgppo_ros_node_pkg
+Installing dgppo_ros_node script to /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/dgppo_ros_node_pkg
+writing list of installed files to '/home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/install.log'

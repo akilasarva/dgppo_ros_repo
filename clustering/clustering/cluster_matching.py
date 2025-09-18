@@ -125,8 +125,8 @@ def assign_labels_to_clusters(
 def main():
     """Main function to run the labeling process and print JSON output."""
     # Define file paths
-    cluster_file_path = "encoder_weights/full_bag/train_cluster_to_filepaths_full_bag.txt"
-    ground_truth_file_path = "encoder_weights/full_bag/ground_truth.json"
+    cluster_file_path = "encoder_weights/ground_lidar/train_cluster_to_filepaths_ground_lidar.txt"
+    ground_truth_file_path = "encoder_weights/ground_lidar/ground_truth.json"
 
     ground_truth_data = parse_ground_truth_json(ground_truth_file_path)
 

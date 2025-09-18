@@ -1,0 +1,21 @@
+[1.820s] Invoking command in '/home/akilasar/ros2_ws/src/my_pointcloud_visualizer': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/my_pointcloud_visualizer build --build-base /home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/build install --record /home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/install.log --single-version-externally-managed install_data
+[2.057s] running egg_info
+[2.069s] writing ../build/my_pointcloud_visualizer/my_pointcloud_visualizer.egg-info/PKG-INFO
+[2.070s] writing dependency_links to ../build/my_pointcloud_visualizer/my_pointcloud_visualizer.egg-info/dependency_links.txt
+[2.070s] writing entry points to ../build/my_pointcloud_visualizer/my_pointcloud_visualizer.egg-info/entry_points.txt
+[2.070s] writing requirements to ../build/my_pointcloud_visualizer/my_pointcloud_visualizer.egg-info/requires.txt
+[2.070s] writing top-level names to ../build/my_pointcloud_visualizer/my_pointcloud_visualizer.egg-info/top_level.txt
+[2.111s] reading manifest file '../build/my_pointcloud_visualizer/my_pointcloud_visualizer.egg-info/SOURCES.txt'
+[2.112s] writing manifest file '../build/my_pointcloud_visualizer/my_pointcloud_visualizer.egg-info/SOURCES.txt'
+[2.112s] running build
+[2.112s] running build_py
+[2.113s] running install
+[2.121s] running install_lib
+[2.135s] running install_data
+[2.135s] running install_egg_info
+[2.149s] removing '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/lib/python3.12/site-packages/my_pointcloud_visualizer-0.0.0-py3.12.egg-info' (and everything under it)
+[2.149s] Copying ../build/my_pointcloud_visualizer/my_pointcloud_visualizer.egg-info to /home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/lib/python3.12/site-packages/my_pointcloud_visualizer-0.0.0-py3.12.egg-info
+[2.150s] running install_scripts
+[2.277s] Installing visualizer script to /home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/lib/my_pointcloud_visualizer
+[2.277s] writing list of installed files to '/home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/install.log'
+[2.336s] Invoked command in '/home/akilasar/ros2_ws/src/my_pointcloud_visualizer' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/my_pointcloud_visualizer build --build-base /home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/build install --record /home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/install.log --single-version-externally-managed install_data

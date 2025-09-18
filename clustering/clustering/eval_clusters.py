@@ -433,6 +433,17 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
 from typing import Dict
+import matplotlib.patches as mpatches #
+
+import textwrap
+def wrap_labels(labels, width):
+    """
+    Wraps text labels to a specified width.
+    """
+    wrapped_labels = []
+    for label in labels:
+        wrapped_labels.append(textwrap.fill(label, width=width))
+    return wrapped_labels
 
 def save_confusion_matrix_as_image(confusion_matrix: Dict, filename: str, is_normalized=False):
     """
@@ -460,9 +471,24 @@ def save_confusion_matrix_as_image(confusion_matrix: Dict, filename: str, is_nor
             "Road",
             "unlabeled"
         ]
+        
+        name_label_order = [
+            "Along Wall",
+            "Around Corner",
+            "Past Building",
+            "On Bridge",
+            "In Intersection",
+            "Exit Intersection/ Enter Bridge",
+            "Enter Intersection/ Exit Bridge",
+            "Open Space",
+            "Road",
+            "unlabeled"
+        ]
 
         # Reindex the DataFrame to match the custom order
         df_cm = df_cm.reindex(index=label_order, columns=label_order)
+        wrapped_y_labels = wrap_labels(name_label_order[:-1], 19) # Adjust width as needed
+        wrapped_x_labels = wrap_labels(name_label_order, 19) # Adjust width as needed
 
         # Normalize if requested
         if is_normalized:
@@ -476,16 +502,51 @@ def save_confusion_matrix_as_image(confusion_matrix: Dict, filename: str, is_nor
             fmt = "d"
             title = "Confusion Matrix"
 
-        # Create the plot
-        plt.figure(figsize=(12, 10))
-        sns.heatmap(df_cm, annot=True, fmt=fmt, cmap="Blues")
-        plt.xlabel("Predicted Label")
-        plt.ylabel("True Label")
-        plt.title(title)
+        # # Create the plot
+        # plt.figure(figsize=(12, 10))
+        # sns.heatmap(df_cm, annot=True, fmt=fmt, cmap="Blues", annot_kws={"size": 14})
+        # plt.xlabel("Predicted Label", fontsize=14, fontweight='bold')
+        # plt.ylabel("True Label", fontsize=14, fontweight='bold')
+        # plt.title(title, fontsize=16, fontweight='bold')
+        # plt.xticks(rotation=45, ha='right', fontsize=12) # Rotate x-axis labels
+        # plt.yticks(rotation=0, fontsize=12)
+        # plt.tight_layout()
+        
+        fig, ax = plt.subplots(figsize=(14, 11.5))
+
+        # Plot heatmap without annotations
+        heatmap = sns.heatmap(
+            df_cm,
+            annot=True,  # Disable default annotations
+            fmt=fmt,
+            cmap="YlGnBu",
+            ax=ax,
+            annot_kws={"size": 14},
+            cbar=False
+        )
+
+        # Adjust font sizes and rotate labels
+        ax.set_xlabel("Predicted Label", fontsize=14, fontweight='bold')
+        ax.set_ylabel("True Label", fontsize=14, fontweight='bold')
+        ax.set_title(title, fontsize=17, fontweight='bold', pad=10)
+        ax.set_xticklabels(wrapped_x_labels, rotation=45, ha='right', fontsize=13)
+        ax.set_yticklabels(wrapped_y_labels, rotation=0, fontsize=13)
+
+        # ----------------------------------------------------
+        # This is the key line to make the cells square
+        ax.set_aspect('equal')
+        cbar_ax = fig.add_axes([0.95, 0.21, 0.02, 0.75]) # [left, bottom, width, height]
+        cbar = fig.colorbar(heatmap.collections[0], cax=cbar_ax)
+        cbar.ax.tick_params(labelsize=10)
+        #cbar.ax.set_title('Count', fontsize=12, fontweight='bold', pad=15) # Add a title to colorbar
+
+        # ----------------------------------------------------
+
         plt.tight_layout()
 
+
         # Save the figure
-        plt.savefig(filename, dpi=300)
+        plt.savefig(filename, dpi=300,  bbox_inches='tight')
         print(f"Successfully saved flipped confusion matrix image to {filename}")
         plt.close()
 
@@ -496,7 +557,132 @@ def main():
     """Main function to run the confusion matrix generation process."""
     
     # Load the JSON data from the provided artifact
-    confusion_matrix_json = json.dumps({
+    training_cm_dict = dict(
+        {
+    "Along Wall": {
+        "Along Wall": 223,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 17,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 6,
+        "Past Building": 0,
+        "Road": 0,
+        "unlabeled": 31
+    },
+    "Around Corner": {
+        "Along Wall": 2,
+        "Around Corner": 111,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 0,
+        "unlabeled": 7
+    },
+    "Enter Intersection/Exit Bridge": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 230,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 31,
+        "On Bridge": 6,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 68,
+        "unlabeled": 5
+    },
+    "Exit Intersection/Enter Bridge": {
+        "Along Wall": 8,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 195,
+        "In Intersection": 9,
+        "On Bridge": 8,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 30,
+        "unlabeled": 0
+    },
+    "In Intersection": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 7,
+        "Exit Intersection/Enter Bridge": 10,
+        "In Intersection": 283,
+        "On Bridge": 0,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 61,
+        "unlabeled": 9
+    },
+    "On Bridge": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 275,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 0,
+        "unlabeled": 15
+    },
+    "Open Space": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 234,
+        "Past Building": 0,
+        "Road": 0,
+        "unlabeled": 0
+    },
+    "Past Building": {
+        "Along Wall": 4,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 0,
+        "Past Building": 76,
+        "Road": 0,
+        "unlabeled": 0
+    },
+    "Road": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 13,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 0,
+        "Past Building": 9,
+        "Road": 768,
+        "unlabeled": 0
+    },
+    "unlabeled": {
+        "Along Wall": 0,
+        "Around Corner": 0,
+        "Enter Intersection/Exit Bridge": 0,
+        "Exit Intersection/Enter Bridge": 0,
+        "In Intersection": 0,
+        "On Bridge": 0,
+        "Open Space": 0,
+        "Past Building": 0,
+        "Road": 0,
+        "unlabeled": 0
+    }
+}
+    )
+    
+    testing_cm_dict = dict({
     "Along Wall": {
         "Along Wall": 230,
         "Around Corner": 10,
@@ -619,8 +805,65 @@ def main():
     }
     })
     
+
+    # train_df = pd.DataFrame(training_cm_dict) #.transpose()
+    # test_df = pd.DataFrame(testing_cm_dict).transpose()
+    
+    # # Remove the 'unlabeled' row from training data (as all values are 0)
+    # train_df = train_df.drop('unlabeled', errors='ignore')
+
+    # # Normalize each DataFrame by dividing each row by its sum
+    # train_df_normalized = train_df.div(train_df.sum(axis=1), axis=0)
+    # test_df_normalized = test_df.div(test_df.sum(axis=1), axis=0)
+    
+    # # Get all class labels from the testing data to ensure consistent column order
+    # all_classes = test_df.index.tolist()
+    
+    # # Reindex the training data to match the columns of the testing data
+    # train_df_normalized = train_df_normalized.reindex(index=all_classes, columns=all_classes, fill_value=0)
+
+    # # Create the plot
+    # fig, ax = plt.subplots(figsize=(12, 12))
+    
+    # # Use the test data for the heatmap background with a green color scheme
+    # sns.heatmap(test_df_normalized, annot=False, cmap='Greens', cbar=False, ax=ax, linewidths=.5, linecolor='lightgrey', vmin=0, vmax=1.3)
+
+    # # Add custom split-cell annotations with normalized values
+    # for i, row_label in enumerate(test_df_normalized.index):
+    #     for j, col_label in enumerate(test_df_normalized.columns):
+    #         if row_label in train_df.index:
+    #             train_value = train_df_normalized.loc[row_label, col_label]
+    #             train_text = f"{train_value:.2f}"
+    #         else:
+    #             train_text = "N/A"
+            
+    #         test_value = test_df_normalized.loc[row_label, col_label]
+    #         test_text = f"{test_value:.2f}"
+            
+    #         # Annotate with the training values in a different color
+    #         ax.text(j + 0.5, i + 0.3, train_text, ha='center', va='center', color='blue', fontsize=12)
+            
+    #         # Annotate with the testing values
+    #         ax.text(j + 0.5, i + 0.7, test_text, ha='center', va='center', color='black', fontsize=12) #, fontweight='bold')
+
+    # # Finalize the plot
+    # ax.set_title("Normalized Confusion Matrix: Training and Testing Data", fontsize=16)
+    # ax.set_xlabel("Predicted Label", fontsize=14) #, labelpad=20)
+    # ax.set_ylabel("True Label", fontsize=14) #, labelpad=20)
+    # plt.xticks(rotation=45, ha='right', fontsize=12)
+    # plt.yticks(rotation=0, fontsize=12)
+
+    # # Add a custom legend outside of the plot
+    # blue_patch = mpatches.Patch(color='blue', label='Training')
+    # green_patch = mpatches.Patch(color='green', label='Testing')
+    # plt.legend(handles=[blue_patch, green_patch], loc='upper left', bbox_to_anchor=(-0.3, 1.02), fontsize=12)
+
+    # plt.tight_layout(rect=[0, 0.1, 1, 1])
+    # plt.show()
+    
     # Load the JSON string into a Python dictionary
-    cm_dict = json.loads(confusion_matrix_json)
+    test_json = json.dumps(testing_cm_dict)
+    cm_dict = json.loads(test_json)
     
     # Create a pandas DataFrame from the dictionary
     df = pd.DataFrame.from_dict(cm_dict)

@@ -1,0 +1,4 @@
+[console_scripts]
+carla_scaling = clustering.scaling_carla_inputs:main
+clock_publisher = clustering.clock_publisher:main
+live_cluster_inference_node = clustering.live_cluster_inference_node:main

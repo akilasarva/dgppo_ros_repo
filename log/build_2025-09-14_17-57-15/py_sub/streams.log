@@ -1,0 +1,37 @@
+[1.529s] Invoking command in '/home/akilasar/ros2_ws/src/py_sub': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/py_sub/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/py_sub build --build-base /home/akilasar/ros2_ws/src/build/py_sub/build install --record /home/akilasar/ros2_ws/src/build/py_sub/install.log --single-version-externally-managed install_data
+[1.718s] running egg_info
+[1.719s] creating ../build/py_sub/py_sub.egg-info
+[1.728s] writing ../build/py_sub/py_sub.egg-info/PKG-INFO
+[1.729s] writing dependency_links to ../build/py_sub/py_sub.egg-info/dependency_links.txt
+[1.729s] writing entry points to ../build/py_sub/py_sub.egg-info/entry_points.txt
+[1.729s] writing requirements to ../build/py_sub/py_sub.egg-info/requires.txt
+[1.729s] writing top-level names to ../build/py_sub/py_sub.egg-info/top_level.txt
+[1.730s] writing manifest file '../build/py_sub/py_sub.egg-info/SOURCES.txt'
+[1.751s] reading manifest file '../build/py_sub/py_sub.egg-info/SOURCES.txt'
+[1.752s] writing manifest file '../build/py_sub/py_sub.egg-info/SOURCES.txt'
+[1.752s] running build
+[1.752s] running build_py
+[1.752s] creating /home/akilasar/ros2_ws/src/build/py_sub/build
+[1.752s] creating /home/akilasar/ros2_ws/src/build/py_sub/build/lib
+[1.752s] creating /home/akilasar/ros2_ws/src/build/py_sub/build/lib/py_sub
+[1.752s] copying py_sub/__init__.py -> /home/akilasar/ros2_ws/src/build/py_sub/build/lib/py_sub
+[1.752s] copying py_sub/subscriber.py -> /home/akilasar/ros2_ws/src/build/py_sub/build/lib/py_sub
+[1.753s] running install
+[1.762s] running install_lib
+[1.774s] creating /home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages/py_sub
+[1.775s] copying /home/akilasar/ros2_ws/src/build/py_sub/build/lib/py_sub/__init__.py -> /home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages/py_sub
+[1.775s] copying /home/akilasar/ros2_ws/src/build/py_sub/build/lib/py_sub/subscriber.py -> /home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages/py_sub
+[1.776s] byte-compiling /home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages/py_sub/__init__.py to __init__.cpython-312.pyc
+[1.776s] byte-compiling /home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages/py_sub/subscriber.py to subscriber.cpython-312.pyc
+[1.776s] running install_data
+[1.777s] creating /home/akilasar/ros2_ws/src/install/py_sub/share/ament_index
+[1.777s] creating /home/akilasar/ros2_ws/src/install/py_sub/share/ament_index/resource_index
+[1.777s] creating /home/akilasar/ros2_ws/src/install/py_sub/share/ament_index/resource_index/packages
+[1.777s] copying resource/py_sub -> /home/akilasar/ros2_ws/src/install/py_sub/share/ament_index/resource_index/packages
+[1.777s] copying package.xml -> /home/akilasar/ros2_ws/src/install/py_sub/share/py_sub
+[1.777s] running install_egg_info
+[1.791s] Copying ../build/py_sub/py_sub.egg-info to /home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages/py_sub-0.0.0-py3.12.egg-info
+[1.792s] running install_scripts
+[1.877s] Installing subscriber script to /home/akilasar/ros2_ws/src/install/py_sub/lib/py_sub
+[1.877s] writing list of installed files to '/home/akilasar/ros2_ws/src/build/py_sub/install.log'
+[1.934s] Invoked command in '/home/akilasar/ros2_ws/src/py_sub' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/py_sub/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/py_sub build --build-base /home/akilasar/ros2_ws/src/build/py_sub/build install --record /home/akilasar/ros2_ws/src/build/py_sub/install.log --single-version-externally-managed install_data

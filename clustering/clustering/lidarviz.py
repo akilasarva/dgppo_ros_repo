@@ -4,15 +4,14 @@ import os
 import imageio
 from PIL import Image, ImageDraw, ImageFont
 
-def visualize_low_altitude_points_gif(folder_path, 
+def visualize_low_altitude_points_gif(folder_path,
                                      output_gif_path="low_altitude_points.gif",
                                      z_threshold_lower=0.1, z_threshold_upper=0.5,
                                      z_threshold_lower_2=1.5, z_threshold_upper_2=2.0,
-                                     max_range=5.0,
+                                     max_range=5.0, min_range=0.5,
                                      angle_increment_deg=11.25):
     """
-    Visualizes points within specified altitude ranges from .pcd files and saves as a GIF.
-    The script now combines two altitude slices and visualizes the Lidar footprint.
+    Visualizes points within specified altitude and range filters from .pcd files and saves as a GIF.
     
     Args:
         folder_path (str): Path to the directory containing .pcd files.
@@ -21,7 +20,8 @@ def visualize_low_altitude_points_gif(folder_path,
         z_threshold_upper (float): Upper z-axis threshold for the first slice.
         z_threshold_lower_2 (float): Lower z-axis threshold for the second slice.
         z_threshold_upper_2 (float): Upper z-axis threshold for the second slice.
-        max_range (float): Maximum range for Lidar data.
+        max_range (float): Maximum radial range for Lidar data.
+        min_range (float): Minimum radial range for Lidar data.
         angle_increment_deg (float): Angular resolution of the Lidar sensor in degrees.
     """
     pcd_files = sorted([f for f in os.listdir(folder_path) if f.endswith(".pcd")])
@@ -35,12 +35,12 @@ def visualize_low_altitude_points_gif(folder_path,
     vis.create_window(window_name="LiDAR Footprint Visualization")
     render_option = vis.get_render_option()
     render_option.background_color = np.asarray([0, 0, 0])
-    render_option.point_size = 3.0 # Set point size for better visibility
+    render_option.point_size = 3.0
 
     images = []
     num_angles = int(360 / angle_increment_deg)
 
-    for file_name in pcd_files[1500::3]:
+    for file_name in pcd_files[:500]:
         file_path = os.path.join(folder_path, file_name)
 
         try:
@@ -52,8 +52,11 @@ def visualize_low_altitude_points_gif(folder_path,
             points_full = np.asarray(pcd_full.points)
             finite_mask_full = np.all(np.isfinite(points_full), axis=1)
             points_full_finite = points_full[finite_mask_full]
+            
+            # Calculate radial distance for each point
+            distances = np.linalg.norm(points_full_finite[:, :2], axis=1)
 
-            # Combine the two slice masks based on z-axis thresholds
+            # Combine altitude and radial range filters
             slice_mask_1 = (np.abs(points_full_finite[:, 2]) >= z_threshold_lower) & \
                            (np.abs(points_full_finite[:, 2]) <= z_threshold_upper)
             
@@ -61,8 +64,9 @@ def visualize_low_altitude_points_gif(folder_path,
                            (np.abs(points_full_finite[:, 2]) <= z_threshold_upper_2)
 
             combined_slice_mask = (slice_mask_1 | slice_mask_2) & \
-                                  (np.abs(points_full_finite[:, 0]) <= max_range) & \
-                                  (np.abs(points_full_finite[:, 1]) <= max_range)
+                                  (distances >= min_range) & \
+                                  (distances <= max_range)
+
             points_slice =  points_full_finite[combined_slice_mask]
             
             if points_slice.size == 0:
@@ -71,7 +75,7 @@ def visualize_low_altitude_points_gif(folder_path,
 
             pcd_slice = o3d.geometry.PointCloud()
             pcd_slice.points = o3d.utility.Vector3dVector(points_slice)
-            pcd_slice.paint_uniform_color([0, 0, 1]) # Dark blue for the points slice
+            pcd_slice.paint_uniform_color([0, 0, 1])
 
             # Generate Lidar footprint lines
             footprint_points = []
@@ -87,13 +91,11 @@ def visualize_low_altitude_points_gif(folder_path,
 
                 closest_point = np.array([max_range * np.cos(angle_rad), max_range * np.sin(angle_rad), 0])
                 if sector_points.shape[0] > 0:
-                    distances = np.linalg.norm(sector_points[:, :2], axis=1)
-                    min_dist = np.min(distances)
-                    if min_dist < max_range:
-                        closest_index = np.argmin(distances)
+                    distances_in_sector = np.linalg.norm(sector_points[:, :2], axis=1)
+                    min_dist_in_sector = np.min(distances_in_sector)
+                    if min_dist_in_sector < max_range:
+                        closest_index = np.argmin(distances_in_sector)
                         closest_point = sector_points[closest_index]
-                    else:
-                        closest_point = np.array([max_range * np.cos(angle_rad), max_range * np.sin(angle_rad), 0])
 
                 footprint_points.append([0, 0, 0])
                 footprint_points.append(closest_point)
@@ -103,7 +105,7 @@ def visualize_low_altitude_points_gif(folder_path,
                 points=o3d.utility.Vector3dVector(footprint_points),
                 lines=o3d.utility.Vector2iVector(footprint_lines),
             )
-            line_set.paint_uniform_color([1, 0, 0]) # Red for the footprint lines
+            line_set.paint_uniform_color([1, 0, 0])
 
             # Add geometries to the visualizer
             vis.clear_geometries()
@@ -137,11 +139,29 @@ def visualize_low_altitude_points_gif(folder_path,
 
     vis.destroy_window()
     if images:
-        imageio.mimsave(output_gif_path, images, fps=5)
+        imageio.mimsave(output_gif_path, images, fps=10)
         print(f"GIF saved to: {output_gif_path}")
     else:
         print("No images were generated. GIF not created.")
 
+# Example Usage
+folder_path = "../../../../livox1/livox1_pcds"
+visualize_low_altitude_points_gif(folder_path,
+                                  output_gif_path="filtered_points.gif",
+                                  z_threshold_lower=0.25, z_threshold_upper=0.8,
+                                  z_threshold_lower_2=0, z_threshold_upper_2=0,
+                                  max_range=8.0, min_range=0.5,
+                                  angle_increment_deg=5)
+
+
+# # Example Usage
+# folder_path = "ground_lidar_pcds"
+# visualize_low_altitude_points_gif(folder_path,
+#                                   output_gif_path="filtered_points.gif",
+#                                   z_threshold_lower=-0.1, z_threshold_upper=0.15,
+#                                   z_threshold_lower_2=1, z_threshold_upper_2=2,
+#                                   max_range=25.0, min_range=2.5,
+#                                   angle_increment_deg=5)
 
 # # Example Usage
 # folder_path = "../../../../carla_data/bridge2_carla/bridge2_carla_pcds"
@@ -188,14 +208,14 @@ def visualize_low_altitude_points_gif(folder_path,
 #                                   max_range=15.0,
 #                                   angle_increment_deg=5)
 
-# Example Usage
-folder_path = "/home/akilasar/ros2_ws/full_bag/full_bag_pcds"
-visualize_low_altitude_points_gif(folder_path, 
-                                  output_gif_path="low_altitude_points_with_footprint.gif",
-                                  z_threshold_lower=0, z_threshold_upper=5, # First slice (e.g., ground)
-                                  z_threshold_lower_2=0, z_threshold_upper_2=0, # Second slice (e.g., table top)
-                                  max_range=25.0,
-                                  angle_increment_deg=5)
+# # Example Usage
+# folder_path = "ground_lidar/ground_lidar_pcds"
+# visualize_low_altitude_points_gif(folder_path, 
+#                                   output_gif_path="low_altitude_points_with_footprint.gif",
+#                                   z_threshold_lower=0.19, z_threshold_upper=0.3, # First slice (e.g., ground)
+#                                   z_threshold_lower_2=2, z_threshold_upper_2=5, # Second slice (e.g., table top)
+#                                   max_range=25.0,
+#                                   angle_increment_deg=5)
 
 
 

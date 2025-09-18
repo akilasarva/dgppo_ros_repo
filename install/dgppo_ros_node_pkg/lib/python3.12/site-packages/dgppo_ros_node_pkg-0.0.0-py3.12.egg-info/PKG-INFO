@@ -1,0 +1,8 @@
+Metadata-Version: 2.1
+Name: dgppo-ros-node-pkg
+Version: 0.0.0
+Summary: TODO: Package description
+Maintainer: akilasar
+Maintainer-email: akilasar@todo.todo
+License: TODO: License declaration
+Provides-Extra: test

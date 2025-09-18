@@ -1,0 +1,31 @@
+[1.519s] Invoking command in '/home/akilasar/ros2_ws/src/py_pubsub': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/py_pubsub/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/py_pubsub build --build-base /home/akilasar/ros2_ws/src/build/py_pubsub/build install --record /home/akilasar/ros2_ws/src/build/py_pubsub/install.log --single-version-externally-managed
+[1.689s] running egg_info
+[1.689s] creating ../build/py_pubsub/py_pubsub.egg-info
+[1.698s] writing ../build/py_pubsub/py_pubsub.egg-info/PKG-INFO
+[1.698s] writing dependency_links to ../build/py_pubsub/py_pubsub.egg-info/dependency_links.txt
+[1.699s] writing entry points to ../build/py_pubsub/py_pubsub.egg-info/entry_points.txt
+[1.699s] writing requirements to ../build/py_pubsub/py_pubsub.egg-info/requires.txt
+[1.699s] writing top-level names to ../build/py_pubsub/py_pubsub.egg-info/top_level.txt
+[1.699s] writing manifest file '../build/py_pubsub/py_pubsub.egg-info/SOURCES.txt'
+[1.721s] reading manifest file '../build/py_pubsub/py_pubsub.egg-info/SOURCES.txt'
+[1.722s] writing manifest file '../build/py_pubsub/py_pubsub.egg-info/SOURCES.txt'
+[1.722s] running build
+[1.722s] running build_py
+[1.722s] creating /home/akilasar/ros2_ws/src/build/py_pubsub/build
+[1.723s] creating /home/akilasar/ros2_ws/src/build/py_pubsub/build/lib
+[1.723s] creating /home/akilasar/ros2_ws/src/build/py_pubsub/build/lib/py_pubsub
+[1.723s] copying py_pubsub/__init__.py -> /home/akilasar/ros2_ws/src/build/py_pubsub/build/lib/py_pubsub
+[1.723s] copying py_pubsub/publisher.py -> /home/akilasar/ros2_ws/src/build/py_pubsub/build/lib/py_pubsub
+[1.723s] running install
+[1.729s] running install_lib
+[1.741s] creating /home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages/py_pubsub
+[1.741s] copying /home/akilasar/ros2_ws/src/build/py_pubsub/build/lib/py_pubsub/__init__.py -> /home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages/py_pubsub
+[1.741s] copying /home/akilasar/ros2_ws/src/build/py_pubsub/build/lib/py_pubsub/publisher.py -> /home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages/py_pubsub
+[1.741s] byte-compiling /home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages/py_pubsub/__init__.py to __init__.cpython-312.pyc
+[1.741s] byte-compiling /home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages/py_pubsub/publisher.py to publisher.cpython-312.pyc
+[1.742s] running install_egg_info
+[1.751s] Copying ../build/py_pubsub/py_pubsub.egg-info to /home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages/py_pubsub-0.0.0-py3.12.egg-info
+[1.751s] running install_scripts
+[1.836s] Installing publisher script to /home/akilasar/ros2_ws/src/install/py_pubsub/lib/py_pubsub
+[1.837s] writing list of installed files to '/home/akilasar/ros2_ws/src/build/py_pubsub/install.log'
+[1.882s] Invoked command in '/home/akilasar/ros2_ws/src/py_pubsub' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/py_pubsub/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/py_pubsub build --build-base /home/akilasar/ros2_ws/src/build/py_pubsub/build install --record /home/akilasar/ros2_ws/src/build/py_pubsub/install.log --single-version-externally-managed

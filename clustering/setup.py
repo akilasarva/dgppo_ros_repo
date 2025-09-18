@@ -15,7 +15,7 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob(os.path.join('launch', '*launch.[py]*'))),
     (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         ],
-    install_requires=['setuptools'],
+    install_requires=['setuptools', 'torch'],
     zip_safe=True,
     maintainer='akilasar',
     maintainer_email='akilasar@todo.todo',

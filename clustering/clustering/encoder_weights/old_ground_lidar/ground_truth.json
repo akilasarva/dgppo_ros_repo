@@ -1,0 +1,42 @@
+[
+    {
+        "start_time": 0,
+        "end_time": 130,
+        "label": "Enter Intersection/Exit Bridge"
+    },
+    {
+        "start_time": 131,
+        "end_time": 200,
+        "label": "In Intersection"
+    },
+    {
+        "start_time": 201,
+        "end_time": 240,
+        "label": "Exit Intersection/Enter Bridge"
+    },
+    {
+        "start_time": 241,
+        "end_time": 450,
+        "label": "On Bridge"
+    },
+    {
+        "start_time": 451,
+        "end_time": 500,
+        "label": "Enter Intersection/Exit Bridge"
+    },
+    {
+        "start_time": 501,
+        "end_time": 560,
+        "label": "In Intersection"
+    },
+    {
+        "start_time": 561,
+        "end_time": 580,
+        "label": "Exit Intersection/Enter Bridge"
+    },
+    {
+        "start_time": 581,
+        "end_time": 646,
+        "label": "Road"
+    }
+]

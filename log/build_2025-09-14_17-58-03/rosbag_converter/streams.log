@@ -1,0 +1,21 @@
+[1.842s] Invoking command in '/home/akilasar/ros2_ws/src/rosbag_converter': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/rosbag_converter/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/rosbag_converter build --build-base /home/akilasar/ros2_ws/src/build/rosbag_converter/build install --record /home/akilasar/ros2_ws/src/build/rosbag_converter/install.log --single-version-externally-managed install_data
+[2.076s] running egg_info
+[2.091s] writing ../build/rosbag_converter/rosbag_converter.egg-info/PKG-INFO
+[2.091s] writing dependency_links to ../build/rosbag_converter/rosbag_converter.egg-info/dependency_links.txt
+[2.091s] writing entry points to ../build/rosbag_converter/rosbag_converter.egg-info/entry_points.txt
+[2.091s] writing requirements to ../build/rosbag_converter/rosbag_converter.egg-info/requires.txt
+[2.092s] writing top-level names to ../build/rosbag_converter/rosbag_converter.egg-info/top_level.txt
+[2.124s] reading manifest file '../build/rosbag_converter/rosbag_converter.egg-info/SOURCES.txt'
+[2.125s] writing manifest file '../build/rosbag_converter/rosbag_converter.egg-info/SOURCES.txt'
+[2.125s] running build
+[2.125s] running build_py
+[2.125s] running install
+[2.131s] running install_lib
+[2.151s] running install_data
+[2.151s] running install_egg_info
+[2.168s] removing '/home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages/rosbag_converter-0.0.0-py3.12.egg-info' (and everything under it)
+[2.169s] Copying ../build/rosbag_converter/rosbag_converter.egg-info to /home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages/rosbag_converter-0.0.0-py3.12.egg-info
+[2.169s] running install_scripts
+[2.278s] Installing pcd_converter script to /home/akilasar/ros2_ws/src/install/rosbag_converter/lib/rosbag_converter
+[2.278s] writing list of installed files to '/home/akilasar/ros2_ws/src/build/rosbag_converter/install.log'
+[2.338s] Invoked command in '/home/akilasar/ros2_ws/src/rosbag_converter' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/rosbag_converter/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/rosbag_converter build --build-base /home/akilasar/ros2_ws/src/build/rosbag_converter/build install --record /home/akilasar/ros2_ws/src/build/rosbag_converter/install.log --single-version-externally-managed install_data

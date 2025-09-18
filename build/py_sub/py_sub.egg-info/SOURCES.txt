@@ -1,0 +1,17 @@
+package.xml
+setup.cfg
+setup.py
+../build/py_sub/py_sub.egg-info/PKG-INFO
+../build/py_sub/py_sub.egg-info/SOURCES.txt
+../build/py_sub/py_sub.egg-info/dependency_links.txt
+../build/py_sub/py_sub.egg-info/entry_points.txt
+../build/py_sub/py_sub.egg-info/requires.txt
+../build/py_sub/py_sub.egg-info/top_level.txt
+../build/py_sub/py_sub.egg-info/zip-safe
+py_sub/__init__.py
+py_sub/subscriber.py
+resource/py_sub
+test/test_copyright.py
+test/test_flake8.py
+test/test_pep257.py
+test/test_xmllint.py

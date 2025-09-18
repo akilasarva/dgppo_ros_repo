@@ -1,0 +1,27 @@
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0
+    sensor_timeout: 0.1
+    two_d_mode: true
+    publish_tf: true
+    odom_frame: odom
+    base_link_frame: warthog1/base_link
+    world_frame: odom
+
+    # Your odometry topic
+    odom0: /warthog1/platform/odom
+    odom0_config: [true, true, false,
+                   false, false, false,
+                   false, false, false,
+                   false, false, false,
+                   false, false, false]
+    odom0_differential: false
+
+    # Your IMU topic
+    imu0: /warthog1/sensors/microstrain/ekf/imu/data
+    imu0_config: [false, false, false, # x, y, z (position)
+                  true, true, true, # roll, pitch, yaw (orientation)
+                  true, true, true, # roll_rate, pitch_rate, yaw_rate (angular velocity)
+                  true, true, true, # linear_accel_x, y, z
+                  false, false, false] # Not used for IMU
+    imu0_differential: false

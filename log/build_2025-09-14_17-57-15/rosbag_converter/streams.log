@@ -1,0 +1,37 @@
+[1.534s] Invoking command in '/home/akilasar/ros2_ws/src/rosbag_converter': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/rosbag_converter/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/rosbag_converter build --build-base /home/akilasar/ros2_ws/src/build/rosbag_converter/build install --record /home/akilasar/ros2_ws/src/build/rosbag_converter/install.log --single-version-externally-managed install_data
+[1.730s] running egg_info
+[1.730s] creating ../build/rosbag_converter/rosbag_converter.egg-info
+[1.741s] writing ../build/rosbag_converter/rosbag_converter.egg-info/PKG-INFO
+[1.741s] writing dependency_links to ../build/rosbag_converter/rosbag_converter.egg-info/dependency_links.txt
+[1.741s] writing entry points to ../build/rosbag_converter/rosbag_converter.egg-info/entry_points.txt
+[1.741s] writing requirements to ../build/rosbag_converter/rosbag_converter.egg-info/requires.txt
+[1.741s] writing top-level names to ../build/rosbag_converter/rosbag_converter.egg-info/top_level.txt
+[1.741s] writing manifest file '../build/rosbag_converter/rosbag_converter.egg-info/SOURCES.txt'
+[1.757s] reading manifest file '../build/rosbag_converter/rosbag_converter.egg-info/SOURCES.txt'
+[1.758s] writing manifest file '../build/rosbag_converter/rosbag_converter.egg-info/SOURCES.txt'
+[1.758s] running build
+[1.758s] running build_py
+[1.759s] creating /home/akilasar/ros2_ws/src/build/rosbag_converter/build
+[1.759s] creating /home/akilasar/ros2_ws/src/build/rosbag_converter/build/lib
+[1.759s] creating /home/akilasar/ros2_ws/src/build/rosbag_converter/build/lib/rosbag_converter
+[1.759s] copying rosbag_converter/__init__.py -> /home/akilasar/ros2_ws/src/build/rosbag_converter/build/lib/rosbag_converter
+[1.759s] copying rosbag_converter/converter_node.py -> /home/akilasar/ros2_ws/src/build/rosbag_converter/build/lib/rosbag_converter
+[1.760s] running install
+[1.766s] running install_lib
+[1.776s] creating /home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages/rosbag_converter
+[1.776s] copying /home/akilasar/ros2_ws/src/build/rosbag_converter/build/lib/rosbag_converter/__init__.py -> /home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages/rosbag_converter
+[1.776s] copying /home/akilasar/ros2_ws/src/build/rosbag_converter/build/lib/rosbag_converter/converter_node.py -> /home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages/rosbag_converter
+[1.776s] byte-compiling /home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages/rosbag_converter/__init__.py to __init__.cpython-312.pyc
+[1.777s] byte-compiling /home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages/rosbag_converter/converter_node.py to converter_node.cpython-312.pyc
+[1.781s] running install_data
+[1.781s] creating /home/akilasar/ros2_ws/src/install/rosbag_converter/share/ament_index
+[1.781s] creating /home/akilasar/ros2_ws/src/install/rosbag_converter/share/ament_index/resource_index
+[1.781s] creating /home/akilasar/ros2_ws/src/install/rosbag_converter/share/ament_index/resource_index/packages
+[1.781s] copying resource/rosbag_converter -> /home/akilasar/ros2_ws/src/install/rosbag_converter/share/ament_index/resource_index/packages
+[1.781s] copying package.xml -> /home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter
+[1.782s] running install_egg_info
+[1.794s] Copying ../build/rosbag_converter/rosbag_converter.egg-info to /home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages/rosbag_converter-0.0.0-py3.12.egg-info
+[1.795s] running install_scripts
+[1.880s] Installing pcd_converter script to /home/akilasar/ros2_ws/src/install/rosbag_converter/lib/rosbag_converter
+[1.880s] writing list of installed files to '/home/akilasar/ros2_ws/src/build/rosbag_converter/install.log'
+[1.946s] Invoked command in '/home/akilasar/ros2_ws/src/rosbag_converter' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/rosbag_converter/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/rosbag_converter build --build-base /home/akilasar/ros2_ws/src/build/rosbag_converter/build install --record /home/akilasar/ros2_ws/src/build/rosbag_converter/install.log --single-version-externally-managed install_data

@@ -1,0 +1,2 @@
+[console_scripts]
+visualizer = my_pointcloud_visualizer.pointcloud_visualizer_node:main

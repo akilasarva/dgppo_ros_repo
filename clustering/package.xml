@@ -6,7 +6,7 @@
   <description>TODO: Package description</description>
   <maintainer email="your_email@example.com">akilasar</maintainer>
   <license>TODO: License declaration</license>
-
+  <depend>python3-torch</depend>
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

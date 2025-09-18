@@ -1,0 +1,68 @@
+running egg_info
+creating ../build/clustering/clustering.egg-info
+writing ../build/clustering/clustering.egg-info/PKG-INFO
+writing dependency_links to ../build/clustering/clustering.egg-info/dependency_links.txt
+writing entry points to ../build/clustering/clustering.egg-info/entry_points.txt
+writing requirements to ../build/clustering/clustering.egg-info/requires.txt
+writing top-level names to ../build/clustering/clustering.egg-info/top_level.txt
+writing manifest file '../build/clustering/clustering.egg-info/SOURCES.txt'
+reading manifest file '../build/clustering/clustering.egg-info/SOURCES.txt'
+writing manifest file '../build/clustering/clustering.egg-info/SOURCES.txt'
+running build
+running build_py
+creating /home/akilasar/ros2_ws/src/build/clustering/build
+creating /home/akilasar/ros2_ws/src/build/clustering/build/lib
+creating /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/live_cluster_inference_node.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/cluster_matching.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/live_cluster_laserscan.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/cluster_training.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/lidarviz.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/clock_publisher.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/scaling_carla_inputs.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/eval_clusters.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/lidar_processor.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/__init__.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+copying clustering/cluster_training_laserscan.py -> /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering
+running install
+running install_lib
+creating /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/live_cluster_inference_node.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/cluster_matching.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/live_cluster_laserscan.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/cluster_training.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/lidarviz.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/clock_publisher.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/scaling_carla_inputs.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/eval_clusters.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/lidar_processor.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/__init__.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+copying /home/akilasar/ros2_ws/src/build/clustering/build/lib/clustering/cluster_training_laserscan.py -> /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/live_cluster_inference_node.py to live_cluster_inference_node.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/cluster_matching.py to cluster_matching.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/live_cluster_laserscan.py to live_cluster_laserscan.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/cluster_training.py to cluster_training.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/lidarviz.py to lidarviz.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/clock_publisher.py to clock_publisher.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/scaling_carla_inputs.py to scaling_carla_inputs.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/eval_clusters.py to eval_clusters.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/lidar_processor.py to lidar_processor.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/__init__.py to __init__.cpython-312.pyc
+byte-compiling /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering/cluster_training_laserscan.py to cluster_training_laserscan.cpython-312.pyc
+running install_data
+creating /home/akilasar/ros2_ws/src/install/clustering/share/ament_index
+creating /home/akilasar/ros2_ws/src/install/clustering/share/ament_index/resource_index
+creating /home/akilasar/ros2_ws/src/install/clustering/share/ament_index/resource_index/packages
+copying resource/clustering -> /home/akilasar/ros2_ws/src/install/clustering/share/ament_index/resource_index/packages
+copying package.xml -> /home/akilasar/ros2_ws/src/install/clustering/share/clustering
+creating /home/akilasar/ros2_ws/src/install/clustering/share/clustering/launch
+copying launch/pointcloud_to_laserscan.launch.py -> /home/akilasar/ros2_ws/src/install/clustering/share/clustering/launch
+creating /home/akilasar/ros2_ws/src/install/clustering/share/clustering/config
+copying config/ekf.yaml -> /home/akilasar/ros2_ws/src/install/clustering/share/clustering/config
+running install_egg_info
+Copying ../build/clustering/clustering.egg-info to /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering-0.0.0-py3.12.egg-info
+running install_scripts
+Installing carla_scaling script to /home/akilasar/ros2_ws/src/install/clustering/lib/clustering
+Installing clock_publisher script to /home/akilasar/ros2_ws/src/install/clustering/lib/clustering
+Installing live_cluster_inference_node script to /home/akilasar/ros2_ws/src/install/clustering/lib/clustering
+writing list of installed files to '/home/akilasar/ros2_ws/src/build/clustering/install.log'

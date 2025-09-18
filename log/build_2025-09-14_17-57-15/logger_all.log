@@ -1,0 +1,416 @@
+[0.084s] DEBUG:colcon:Command line arguments: ['/usr/bin/colcon', 'build']
+[0.085s] DEBUG:colcon:Parsed command line arguments: Namespace(log_base=None, log_level=None, verb_name='build', build_base='build', install_base='install', merge_install=False, symlink_install=False, test_result_base=None, continue_on_error=False, executor='parallel', parallel_workers=16, event_handlers=None, ignore_user_meta=False, metas=['./colcon.meta'], base_paths=['.'], packages_ignore=None, packages_ignore_regex=None, paths=None, packages_up_to=None, packages_up_to_regex=None, packages_above=None, packages_above_and_dependencies=None, packages_above_depth=None, packages_select_by_dep=None, packages_skip_by_dep=None, packages_skip_up_to=None, packages_select_build_failed=False, packages_skip_build_finished=False, packages_select_test_failures=False, packages_skip_test_passed=False, packages_select=None, packages_skip=None, packages_select_regex=None, packages_skip_regex=None, packages_start=None, packages_end=None, allow_overriding=[], cmake_args=None, cmake_target=None, cmake_target_skip_unavailable=False, cmake_clean_cache=False, cmake_clean_first=False, cmake_force_configure=False, ament_cmake_args=None, catkin_cmake_args=None, catkin_skip_building_tests=False, mixin_files=None, mixin=None, verb_parser=<colcon_mixin.mixin.mixin_argument.MixinArgumentDecorator object at 0x70729d4d3110>, verb_extension=<colcon_core.verb.build.BuildVerb object at 0x70729d5f7860>, main=<bound method BuildVerb.main of <colcon_core.verb.build.BuildVerb object at 0x70729d5f7860>>, mixin_verb=('build',))
+[0.117s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) check parameters
+[0.117s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) check parameters
+[0.117s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) check parameters
+[0.117s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) check parameters
+[0.117s] Level 1:colcon.colcon_core.package_discovery:discover_packages(colcon_meta) discover
+[0.117s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) discover
+[0.117s] INFO:colcon.colcon_core.package_discovery:Crawling recursively for packages in '/home/akilasar/ros2_ws/src'
+[0.117s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ignore', 'ignore_ament_install']
+[0.117s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore'
+[0.117s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ignore_ament_install'
+[0.117s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_pkg']
+[0.117s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_pkg'
+[0.117s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['colcon_meta']
+[0.117s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'colcon_meta'
+[0.117s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['ros']
+[0.117s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'ros'
+[0.138s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['cmake', 'python']
+[0.138s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'cmake'
+[0.138s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python'
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extensions ['python_setup_py']
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(.) by extension 'python_setup_py'
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extensions ['ignore', 'ignore_ament_install']
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(build) by extension 'ignore'
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(build) ignored
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(carla_dgppo_pkg) by extensions ['ignore', 'ignore_ament_install']
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(carla_dgppo_pkg) by extension 'ignore'
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(carla_dgppo_pkg) by extension 'ignore_ament_install'
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(carla_dgppo_pkg) by extensions ['colcon_pkg']
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(carla_dgppo_pkg) by extension 'colcon_pkg'
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(carla_dgppo_pkg) by extensions ['colcon_meta']
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(carla_dgppo_pkg) by extension 'colcon_meta'
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(carla_dgppo_pkg) by extensions ['ros']
+[0.139s] Level 1:colcon.colcon_core.package_identification:_identify(carla_dgppo_pkg) by extension 'ros'
+[0.141s] DEBUG:colcon.colcon_core.package_identification:Package 'carla_dgppo_pkg' with type 'ros.ament_python' and name 'carla_dgppo_pkg'
+[0.141s] Level 1:colcon.colcon_core.package_identification:_identify(clustering) by extensions ['ignore', 'ignore_ament_install']
+[0.141s] Level 1:colcon.colcon_core.package_identification:_identify(clustering) by extension 'ignore'
+[0.141s] Level 1:colcon.colcon_core.package_identification:_identify(clustering) by extension 'ignore_ament_install'
+[0.141s] Level 1:colcon.colcon_core.package_identification:_identify(clustering) by extensions ['colcon_pkg']
+[0.141s] Level 1:colcon.colcon_core.package_identification:_identify(clustering) by extension 'colcon_pkg'
+[0.141s] Level 1:colcon.colcon_core.package_identification:_identify(clustering) by extensions ['colcon_meta']
+[0.141s] Level 1:colcon.colcon_core.package_identification:_identify(clustering) by extension 'colcon_meta'
+[0.141s] Level 1:colcon.colcon_core.package_identification:_identify(clustering) by extensions ['ros']
+[0.141s] Level 1:colcon.colcon_core.package_identification:_identify(clustering) by extension 'ros'
+[0.142s] DEBUG:colcon.colcon_core.package_identification:Package 'clustering' with type 'ros.ament_python' and name 'clustering'
+[0.142s] Level 1:colcon.colcon_core.package_identification:_identify(dgppo_ros_node_pkg) by extensions ['ignore', 'ignore_ament_install']
+[0.142s] Level 1:colcon.colcon_core.package_identification:_identify(dgppo_ros_node_pkg) by extension 'ignore'
+[0.142s] Level 1:colcon.colcon_core.package_identification:_identify(dgppo_ros_node_pkg) by extension 'ignore_ament_install'
+[0.142s] Level 1:colcon.colcon_core.package_identification:_identify(dgppo_ros_node_pkg) by extensions ['colcon_pkg']
+[0.142s] Level 1:colcon.colcon_core.package_identification:_identify(dgppo_ros_node_pkg) by extension 'colcon_pkg'
+[0.142s] Level 1:colcon.colcon_core.package_identification:_identify(dgppo_ros_node_pkg) by extensions ['colcon_meta']
+[0.142s] Level 1:colcon.colcon_core.package_identification:_identify(dgppo_ros_node_pkg) by extension 'colcon_meta'
+[0.142s] Level 1:colcon.colcon_core.package_identification:_identify(dgppo_ros_node_pkg) by extensions ['ros']
+[0.142s] Level 1:colcon.colcon_core.package_identification:_identify(dgppo_ros_node_pkg) by extension 'ros'
+[0.142s] DEBUG:colcon.colcon_core.package_identification:Package 'dgppo_ros_node_pkg' with type 'ros.ament_python' and name 'dgppo_ros_node_pkg'
+[0.142s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extensions ['ignore', 'ignore_ament_install']
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(install) by extension 'ignore'
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(install) ignored
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extensions ['ignore', 'ignore_ament_install']
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(log) by extension 'ignore'
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(log) ignored
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(my_pointcloud_visualizer) by extensions ['ignore', 'ignore_ament_install']
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(my_pointcloud_visualizer) by extension 'ignore'
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(my_pointcloud_visualizer) by extension 'ignore_ament_install'
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(my_pointcloud_visualizer) by extensions ['colcon_pkg']
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(my_pointcloud_visualizer) by extension 'colcon_pkg'
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(my_pointcloud_visualizer) by extensions ['colcon_meta']
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(my_pointcloud_visualizer) by extension 'colcon_meta'
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(my_pointcloud_visualizer) by extensions ['ros']
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(my_pointcloud_visualizer) by extension 'ros'
+[0.143s] DEBUG:colcon.colcon_core.package_identification:Package 'my_pointcloud_visualizer' with type 'ros.ament_python' and name 'my_pointcloud_visualizer'
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(py_pubsub) by extensions ['ignore', 'ignore_ament_install']
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(py_pubsub) by extension 'ignore'
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(py_pubsub) by extension 'ignore_ament_install'
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(py_pubsub) by extensions ['colcon_pkg']
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(py_pubsub) by extension 'colcon_pkg'
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(py_pubsub) by extensions ['colcon_meta']
+[0.143s] Level 1:colcon.colcon_core.package_identification:_identify(py_pubsub) by extension 'colcon_meta'
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_pubsub) by extensions ['ros']
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_pubsub) by extension 'ros'
+[0.144s] DEBUG:colcon.colcon_core.package_identification:Package 'py_pubsub' with type 'ros.ament_python' and name 'py_pubsub'
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_sub) by extensions ['ignore', 'ignore_ament_install']
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_sub) by extension 'ignore'
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_sub) by extension 'ignore_ament_install'
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_sub) by extensions ['colcon_pkg']
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_sub) by extension 'colcon_pkg'
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_sub) by extensions ['colcon_meta']
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_sub) by extension 'colcon_meta'
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_sub) by extensions ['ros']
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(py_sub) by extension 'ros'
+[0.144s] DEBUG:colcon.colcon_core.package_identification:Package 'py_sub' with type 'ros.ament_python' and name 'py_sub'
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_bag_exporter) by extensions ['ignore', 'ignore_ament_install']
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_bag_exporter) by extension 'ignore'
+[0.144s] Level 1:colcon.colcon_core.package_identification:_identify(ros2_bag_exporter) ignored
+[0.145s] Level 1:colcon.colcon_core.package_identification:_identify(rosbag_converter) by extensions ['ignore', 'ignore_ament_install']
+[0.145s] Level 1:colcon.colcon_core.package_identification:_identify(rosbag_converter) by extension 'ignore'
+[0.145s] Level 1:colcon.colcon_core.package_identification:_identify(rosbag_converter) by extension 'ignore_ament_install'
+[0.145s] Level 1:colcon.colcon_core.package_identification:_identify(rosbag_converter) by extensions ['colcon_pkg']
+[0.145s] Level 1:colcon.colcon_core.package_identification:_identify(rosbag_converter) by extension 'colcon_pkg'
+[0.145s] Level 1:colcon.colcon_core.package_identification:_identify(rosbag_converter) by extensions ['colcon_meta']
+[0.145s] Level 1:colcon.colcon_core.package_identification:_identify(rosbag_converter) by extension 'colcon_meta'
+[0.145s] Level 1:colcon.colcon_core.package_identification:_identify(rosbag_converter) by extensions ['ros']
+[0.145s] Level 1:colcon.colcon_core.package_identification:_identify(rosbag_converter) by extension 'ros'
+[0.145s] DEBUG:colcon.colcon_core.package_identification:Package 'rosbag_converter' with type 'ros.ament_python' and name 'rosbag_converter'
+[0.145s] Level 1:colcon.colcon_core.package_discovery:discover_packages(recursive) using defaults
+[0.145s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) discover
+[0.145s] Level 1:colcon.colcon_core.package_discovery:discover_packages(ignore) using defaults
+[0.145s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) discover
+[0.145s] Level 1:colcon.colcon_core.package_discovery:discover_packages(path) using defaults
+[0.160s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) check parameters
+[0.160s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) discover
+[0.160s] Level 1:colcon.colcon_core.package_discovery:discover_packages(prefix_path) using defaults
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'carla_dgppo_pkg' build argument 'cmake_args' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'carla_dgppo_pkg' build argument 'cmake_target' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'carla_dgppo_pkg' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'carla_dgppo_pkg' build argument 'cmake_clean_cache' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'carla_dgppo_pkg' build argument 'cmake_clean_first' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'carla_dgppo_pkg' build argument 'cmake_force_configure' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'carla_dgppo_pkg' build argument 'ament_cmake_args' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'carla_dgppo_pkg' build argument 'catkin_cmake_args' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'carla_dgppo_pkg' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.161s] DEBUG:colcon.colcon_core.verb:Building package 'carla_dgppo_pkg' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/akilasar/ros2_ws/src/build/carla_dgppo_pkg', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg', 'merge_install': False, 'path': '/home/akilasar/ros2_ws/src/carla_dgppo_pkg', 'symlink_install': False, 'test_result_base': None}
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'clustering' build argument 'cmake_args' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'clustering' build argument 'cmake_target' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'clustering' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'clustering' build argument 'cmake_clean_cache' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'clustering' build argument 'cmake_clean_first' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'clustering' build argument 'cmake_force_configure' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'clustering' build argument 'ament_cmake_args' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'clustering' build argument 'catkin_cmake_args' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'clustering' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.161s] DEBUG:colcon.colcon_core.verb:Building package 'clustering' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/akilasar/ros2_ws/src/build/clustering', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/akilasar/ros2_ws/src/install/clustering', 'merge_install': False, 'path': '/home/akilasar/ros2_ws/src/clustering', 'symlink_install': False, 'test_result_base': None}
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'dgppo_ros_node_pkg' build argument 'cmake_args' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'dgppo_ros_node_pkg' build argument 'cmake_target' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'dgppo_ros_node_pkg' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'dgppo_ros_node_pkg' build argument 'cmake_clean_cache' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'dgppo_ros_node_pkg' build argument 'cmake_clean_first' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'dgppo_ros_node_pkg' build argument 'cmake_force_configure' from command line to 'False'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'dgppo_ros_node_pkg' build argument 'ament_cmake_args' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'dgppo_ros_node_pkg' build argument 'catkin_cmake_args' from command line to 'None'
+[0.161s] Level 5:colcon.colcon_core.verb:set package 'dgppo_ros_node_pkg' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.162s] DEBUG:colcon.colcon_core.verb:Building package 'dgppo_ros_node_pkg' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg', 'merge_install': False, 'path': '/home/akilasar/ros2_ws/src/dgppo_ros_node_pkg', 'symlink_install': False, 'test_result_base': None}
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'my_pointcloud_visualizer' build argument 'cmake_args' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'my_pointcloud_visualizer' build argument 'cmake_target' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'my_pointcloud_visualizer' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'my_pointcloud_visualizer' build argument 'cmake_clean_cache' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'my_pointcloud_visualizer' build argument 'cmake_clean_first' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'my_pointcloud_visualizer' build argument 'cmake_force_configure' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'my_pointcloud_visualizer' build argument 'ament_cmake_args' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'my_pointcloud_visualizer' build argument 'catkin_cmake_args' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'my_pointcloud_visualizer' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.162s] DEBUG:colcon.colcon_core.verb:Building package 'my_pointcloud_visualizer' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer', 'merge_install': False, 'path': '/home/akilasar/ros2_ws/src/my_pointcloud_visualizer', 'symlink_install': False, 'test_result_base': None}
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_pubsub' build argument 'cmake_args' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_pubsub' build argument 'cmake_target' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_pubsub' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_pubsub' build argument 'cmake_clean_cache' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_pubsub' build argument 'cmake_clean_first' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_pubsub' build argument 'cmake_force_configure' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_pubsub' build argument 'ament_cmake_args' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_pubsub' build argument 'catkin_cmake_args' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_pubsub' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.162s] DEBUG:colcon.colcon_core.verb:Building package 'py_pubsub' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/akilasar/ros2_ws/src/build/py_pubsub', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/akilasar/ros2_ws/src/install/py_pubsub', 'merge_install': False, 'path': '/home/akilasar/ros2_ws/src/py_pubsub', 'symlink_install': False, 'test_result_base': None}
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_sub' build argument 'cmake_args' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_sub' build argument 'cmake_target' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_sub' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_sub' build argument 'cmake_clean_cache' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_sub' build argument 'cmake_clean_first' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_sub' build argument 'cmake_force_configure' from command line to 'False'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_sub' build argument 'ament_cmake_args' from command line to 'None'
+[0.162s] Level 5:colcon.colcon_core.verb:set package 'py_sub' build argument 'catkin_cmake_args' from command line to 'None'
+[0.163s] Level 5:colcon.colcon_core.verb:set package 'py_sub' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.163s] DEBUG:colcon.colcon_core.verb:Building package 'py_sub' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/akilasar/ros2_ws/src/build/py_sub', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/akilasar/ros2_ws/src/install/py_sub', 'merge_install': False, 'path': '/home/akilasar/ros2_ws/src/py_sub', 'symlink_install': False, 'test_result_base': None}
+[0.163s] Level 5:colcon.colcon_core.verb:set package 'rosbag_converter' build argument 'cmake_args' from command line to 'None'
+[0.163s] Level 5:colcon.colcon_core.verb:set package 'rosbag_converter' build argument 'cmake_target' from command line to 'None'
+[0.163s] Level 5:colcon.colcon_core.verb:set package 'rosbag_converter' build argument 'cmake_target_skip_unavailable' from command line to 'False'
+[0.163s] Level 5:colcon.colcon_core.verb:set package 'rosbag_converter' build argument 'cmake_clean_cache' from command line to 'False'
+[0.163s] Level 5:colcon.colcon_core.verb:set package 'rosbag_converter' build argument 'cmake_clean_first' from command line to 'False'
+[0.163s] Level 5:colcon.colcon_core.verb:set package 'rosbag_converter' build argument 'cmake_force_configure' from command line to 'False'
+[0.163s] Level 5:colcon.colcon_core.verb:set package 'rosbag_converter' build argument 'ament_cmake_args' from command line to 'None'
+[0.163s] Level 5:colcon.colcon_core.verb:set package 'rosbag_converter' build argument 'catkin_cmake_args' from command line to 'None'
+[0.163s] Level 5:colcon.colcon_core.verb:set package 'rosbag_converter' build argument 'catkin_skip_building_tests' from command line to 'False'
+[0.163s] DEBUG:colcon.colcon_core.verb:Building package 'rosbag_converter' with the following arguments: {'ament_cmake_args': None, 'build_base': '/home/akilasar/ros2_ws/src/build/rosbag_converter', 'catkin_cmake_args': None, 'catkin_skip_building_tests': False, 'cmake_args': None, 'cmake_clean_cache': False, 'cmake_clean_first': False, 'cmake_force_configure': False, 'cmake_target': None, 'cmake_target_skip_unavailable': False, 'install_base': '/home/akilasar/ros2_ws/src/install/rosbag_converter', 'merge_install': False, 'path': '/home/akilasar/ros2_ws/src/rosbag_converter', 'symlink_install': False, 'test_result_base': None}
+[0.163s] INFO:colcon.colcon_core.executor:Executing jobs using 'parallel' executor
+[0.165s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete
+[0.165s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/akilasar/ros2_ws/src/carla_dgppo_pkg' with build type 'ament_python'
+[0.165s] Level 1:colcon.colcon_core.shell:create_environment_hook('carla_dgppo_pkg', 'ament_prefix_path')
+[0.167s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_core.shell.bat': Not used on non-Windows systems
+[0.168s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/hook/ament_prefix_path.ps1'
+[0.169s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/hook/ament_prefix_path.dsv'
+[0.169s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/hook/ament_prefix_path.sh'
+[0.170s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.170s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.171s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/akilasar/ros2_ws/src/clustering' with build type 'ament_python'
+[0.171s] Level 1:colcon.colcon_core.shell:create_environment_hook('clustering', 'ament_prefix_path')
+[0.171s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/hook/ament_prefix_path.ps1'
+[0.171s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/hook/ament_prefix_path.dsv'
+[0.171s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/hook/ament_prefix_path.sh'
+[0.172s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.172s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.173s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/akilasar/ros2_ws/src/dgppo_ros_node_pkg' with build type 'ament_python'
+[0.173s] Level 1:colcon.colcon_core.shell:create_environment_hook('dgppo_ros_node_pkg', 'ament_prefix_path')
+[0.173s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/hook/ament_prefix_path.ps1'
+[0.174s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/hook/ament_prefix_path.dsv'
+[0.174s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/hook/ament_prefix_path.sh'
+[0.175s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.175s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.176s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/akilasar/ros2_ws/src/my_pointcloud_visualizer' with build type 'ament_python'
+[0.176s] Level 1:colcon.colcon_core.shell:create_environment_hook('my_pointcloud_visualizer', 'ament_prefix_path')
+[0.176s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/hook/ament_prefix_path.ps1'
+[0.176s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/hook/ament_prefix_path.dsv'
+[0.177s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/hook/ament_prefix_path.sh'
+[0.177s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.177s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.178s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/akilasar/ros2_ws/src/py_pubsub' with build type 'ament_python'
+[0.178s] Level 1:colcon.colcon_core.shell:create_environment_hook('py_pubsub', 'ament_prefix_path')
+[0.178s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/hook/ament_prefix_path.ps1'
+[0.178s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/hook/ament_prefix_path.dsv'
+[0.178s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/hook/ament_prefix_path.sh'
+[0.179s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.179s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.179s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/akilasar/ros2_ws/src/py_sub' with build type 'ament_python'
+[0.180s] Level 1:colcon.colcon_core.shell:create_environment_hook('py_sub', 'ament_prefix_path')
+[0.180s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/hook/ament_prefix_path.ps1'
+[0.180s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/hook/ament_prefix_path.dsv'
+[0.180s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/hook/ament_prefix_path.sh'
+[0.181s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.181s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.181s] INFO:colcon.colcon_ros.task.ament_python.build:Building ROS package in '/home/akilasar/ros2_ws/src/rosbag_converter' with build type 'ament_python'
+[0.181s] Level 1:colcon.colcon_core.shell:create_environment_hook('rosbag_converter', 'ament_prefix_path')
+[0.181s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/hook/ament_prefix_path.ps1'
+[0.182s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/hook/ament_prefix_path.dsv'
+[0.182s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/hook/ament_prefix_path.sh'
+[0.183s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.183s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.340s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/akilasar/ros2_ws/src/carla_dgppo_pkg'
+[0.340s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.340s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.497s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/akilasar/ros2_ws/src/clustering'
+[0.497s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.497s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.651s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/akilasar/ros2_ws/src/dgppo_ros_node_pkg'
+[0.651s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.652s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.798s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/akilasar/ros2_ws/src/my_pointcloud_visualizer'
+[0.799s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.799s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[0.941s] WARNING:colcon.colcon_ros.task.ament_python.build:Package 'py_pubsub' doesn't explicitly install a marker in the package index (colcon-ros currently does it implicitly but that fallback will be removed in the future)
+[0.942s] WARNING:colcon.colcon_ros.task.ament_python.build:Package 'py_pubsub' doesn't explicitly install the 'package.xml' file (colcon-ros currently does it implicitly but that fallback will be removed in the future)
+[0.942s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/akilasar/ros2_ws/src/py_pubsub'
+[0.942s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[0.942s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[1.084s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/akilasar/ros2_ws/src/py_sub'
+[1.084s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[1.084s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[1.226s] INFO:colcon.colcon_core.task.python.build:Building Python package in '/home/akilasar/ros2_ws/src/rosbag_converter'
+[1.226s] INFO:colcon.colcon_core.shell:Skip shell extension 'powershell' for command environment: Not usable outside of PowerShell
+[1.226s] DEBUG:colcon.colcon_core.shell:Skip shell extension 'dsv' for command environment
+[1.693s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/akilasar/ros2_ws/src/clustering': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/clustering/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/clustering build --build-base /home/akilasar/ros2_ws/src/build/clustering/build install --record /home/akilasar/ros2_ws/src/build/clustering/install.log --single-version-externally-managed install_data
+[1.697s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/akilasar/ros2_ws/src/py_pubsub': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/py_pubsub/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/py_pubsub build --build-base /home/akilasar/ros2_ws/src/build/py_pubsub/build install --record /home/akilasar/ros2_ws/src/build/py_pubsub/install.log --single-version-externally-managed
+[1.699s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/akilasar/ros2_ws/src/dgppo_ros_node_pkg': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/dgppo_ros_node_pkg build --build-base /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build install --record /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/install.log --single-version-externally-managed install_data
+[1.700s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/akilasar/ros2_ws/src/carla_dgppo_pkg': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/carla_dgppo_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/carla_dgppo_pkg build --build-base /home/akilasar/ros2_ws/src/build/carla_dgppo_pkg/build install --record /home/akilasar/ros2_ws/src/build/carla_dgppo_pkg/install.log --single-version-externally-managed install_data
+[1.709s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/akilasar/ros2_ws/src/py_sub': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/py_sub/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/py_sub build --build-base /home/akilasar/ros2_ws/src/build/py_sub/build install --record /home/akilasar/ros2_ws/src/build/py_sub/install.log --single-version-externally-managed install_data
+[1.716s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/akilasar/ros2_ws/src/rosbag_converter': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/rosbag_converter/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/rosbag_converter build --build-base /home/akilasar/ros2_ws/src/build/rosbag_converter/build install --record /home/akilasar/ros2_ws/src/build/rosbag_converter/install.log --single-version-externally-managed install_data
+[1.743s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoking command in '/home/akilasar/ros2_ws/src/my_pointcloud_visualizer': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/my_pointcloud_visualizer build --build-base /home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/build install --record /home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/install.log --single-version-externally-managed install_data
+[2.060s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/akilasar/ros2_ws/src/py_pubsub' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/py_pubsub/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/py_pubsub build --build-base /home/akilasar/ros2_ws/src/build/py_pubsub/build install --record /home/akilasar/ros2_ws/src/build/py_pubsub/install.log --single-version-externally-managed
+[2.065s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_pubsub' for CMake module files
+[2.065s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_pubsub' for CMake config files
+[2.066s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_pubsub/lib'
+[2.066s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_pubsub/bin'
+[2.066s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_pubsub/lib/pkgconfig/py_pubsub.pc'
+[2.067s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_pubsub/lib/python3.12/site-packages'
+[2.067s] Level 1:colcon.colcon_core.shell:create_environment_hook('py_pubsub', 'pythonpath')
+[2.067s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/hook/pythonpath.ps1'
+[2.068s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/hook/pythonpath.dsv'
+[2.068s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/hook/pythonpath.sh'
+[2.069s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_pubsub/bin'
+[2.069s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(py_pubsub)
+[2.069s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/package.ps1'
+[2.071s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/package.dsv'
+[2.072s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/package.sh'
+[2.073s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/package.bash'
+[2.073s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/py_pubsub/share/py_pubsub/package.zsh'
+[2.074s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/akilasar/ros2_ws/src/install/py_pubsub/share/colcon-core/packages/py_pubsub)
+[2.113s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_sub' for CMake module files
+[2.113s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/akilasar/ros2_ws/src/py_sub' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/py_sub/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/py_sub build --build-base /home/akilasar/ros2_ws/src/build/py_sub/build install --record /home/akilasar/ros2_ws/src/build/py_sub/install.log --single-version-externally-managed install_data
+[2.114s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_sub' for CMake config files
+[2.114s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_sub/lib'
+[2.114s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_sub/bin'
+[2.114s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_sub/lib/pkgconfig/py_sub.pc'
+[2.114s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_sub/lib/python3.12/site-packages'
+[2.115s] Level 1:colcon.colcon_core.shell:create_environment_hook('py_sub', 'pythonpath')
+[2.115s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/hook/pythonpath.ps1'
+[2.115s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/hook/pythonpath.dsv'
+[2.115s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/hook/pythonpath.sh'
+[2.116s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/py_sub/bin'
+[2.116s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(py_sub)
+[2.116s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/package.ps1'
+[2.117s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/package.dsv'
+[2.118s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/package.sh'
+[2.119s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/package.bash'
+[2.119s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/py_sub/share/py_sub/package.zsh'
+[2.119s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/akilasar/ros2_ws/src/install/py_sub/share/colcon-core/packages/py_sub)
+[2.121s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg' for CMake module files
+[2.122s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/akilasar/ros2_ws/src/carla_dgppo_pkg' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/carla_dgppo_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/carla_dgppo_pkg build --build-base /home/akilasar/ros2_ws/src/build/carla_dgppo_pkg/build install --record /home/akilasar/ros2_ws/src/build/carla_dgppo_pkg/install.log --single-version-externally-managed install_data
+[2.122s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg' for CMake config files
+[2.122s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/lib'
+[2.122s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/bin'
+[2.123s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/lib/pkgconfig/carla_dgppo_pkg.pc'
+[2.123s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/lib/python3.12/site-packages'
+[2.123s] Level 1:colcon.colcon_core.shell:create_environment_hook('carla_dgppo_pkg', 'pythonpath')
+[2.123s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/hook/pythonpath.ps1'
+[2.124s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/hook/pythonpath.dsv'
+[2.124s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/hook/pythonpath.sh'
+[2.124s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/bin'
+[2.124s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(carla_dgppo_pkg)
+[2.125s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/package.ps1'
+[2.125s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/package.dsv'
+[2.125s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/package.sh'
+[2.125s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/package.bash'
+[2.126s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/carla_dgppo_pkg/package.zsh'
+[2.126s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/akilasar/ros2_ws/src/install/carla_dgppo_pkg/share/colcon-core/packages/carla_dgppo_pkg)
+[2.127s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/rosbag_converter' for CMake module files
+[2.128s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/akilasar/ros2_ws/src/rosbag_converter' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/rosbag_converter/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/rosbag_converter build --build-base /home/akilasar/ros2_ws/src/build/rosbag_converter/build install --record /home/akilasar/ros2_ws/src/build/rosbag_converter/install.log --single-version-externally-managed install_data
+[2.128s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/rosbag_converter' for CMake config files
+[2.128s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/rosbag_converter/lib'
+[2.128s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/rosbag_converter/bin'
+[2.128s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/rosbag_converter/lib/pkgconfig/rosbag_converter.pc'
+[2.129s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/rosbag_converter/lib/python3.12/site-packages'
+[2.129s] Level 1:colcon.colcon_core.shell:create_environment_hook('rosbag_converter', 'pythonpath')
+[2.129s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/hook/pythonpath.ps1'
+[2.129s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/hook/pythonpath.dsv'
+[2.129s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/hook/pythonpath.sh'
+[2.130s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/rosbag_converter/bin'
+[2.130s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(rosbag_converter)
+[2.130s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/package.ps1'
+[2.131s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/package.dsv'
+[2.131s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/package.sh'
+[2.131s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/package.bash'
+[2.131s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/rosbag_converter/share/rosbag_converter/package.zsh'
+[2.132s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/akilasar/ros2_ws/src/install/rosbag_converter/share/colcon-core/packages/rosbag_converter)
+[2.133s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/clustering' for CMake module files
+[2.133s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/akilasar/ros2_ws/src/clustering' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/clustering/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/clustering build --build-base /home/akilasar/ros2_ws/src/build/clustering/build install --record /home/akilasar/ros2_ws/src/build/clustering/install.log --single-version-externally-managed install_data
+[2.134s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/clustering' for CMake config files
+[2.134s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/clustering/lib'
+[2.134s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/clustering/bin'
+[2.135s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/clustering/lib/pkgconfig/clustering.pc'
+[2.135s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages'
+[2.135s] Level 1:colcon.colcon_core.shell:create_environment_hook('clustering', 'pythonpath')
+[2.135s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/hook/pythonpath.ps1'
+[2.135s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/hook/pythonpath.dsv'
+[2.136s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/hook/pythonpath.sh'
+[2.136s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/clustering/bin'
+[2.136s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(clustering)
+[2.136s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/package.ps1'
+[2.137s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/package.dsv'
+[2.137s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/package.sh'
+[2.137s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/package.bash'
+[2.137s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/clustering/share/clustering/package.zsh'
+[2.137s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/akilasar/ros2_ws/src/install/clustering/share/colcon-core/packages/clustering)
+[2.147s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer' for CMake module files
+[2.148s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/akilasar/ros2_ws/src/my_pointcloud_visualizer' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/my_pointcloud_visualizer build --build-base /home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/build install --record /home/akilasar/ros2_ws/src/build/my_pointcloud_visualizer/install.log --single-version-externally-managed install_data
+[2.148s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer' for CMake config files
+[2.148s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/lib'
+[2.148s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/bin'
+[2.149s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/lib/pkgconfig/my_pointcloud_visualizer.pc'
+[2.149s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/lib/python3.12/site-packages'
+[2.149s] Level 1:colcon.colcon_core.shell:create_environment_hook('my_pointcloud_visualizer', 'pythonpath')
+[2.149s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/hook/pythonpath.ps1'
+[2.150s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/hook/pythonpath.dsv'
+[2.150s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/hook/pythonpath.sh'
+[2.150s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/bin'
+[2.150s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(my_pointcloud_visualizer)
+[2.151s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/package.ps1'
+[2.151s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/package.dsv'
+[2.151s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/package.sh'
+[2.152s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/package.bash'
+[2.152s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/my_pointcloud_visualizer/package.zsh'
+[2.152s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/akilasar/ros2_ws/src/install/my_pointcloud_visualizer/share/colcon-core/packages/my_pointcloud_visualizer)
+[2.255s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg' for CMake module files
+[2.256s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg' for CMake config files
+[2.256s] DEBUG:colcon.colcon_core.event_handler.log_command:Invoked command in '/home/akilasar/ros2_ws/src/dgppo_ros_node_pkg' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/dgppo_ros_node_pkg build --build-base /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build install --record /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/install.log --single-version-externally-managed install_data
+[2.257s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib'
+[2.257s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/bin'
+[2.257s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/pkgconfig/dgppo_ros_node_pkg.pc'
+[2.257s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages'
+[2.257s] Level 1:colcon.colcon_core.shell:create_environment_hook('dgppo_ros_node_pkg', 'pythonpath')
+[2.257s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/hook/pythonpath.ps1'
+[2.257s] INFO:colcon.colcon_core.shell:Creating environment descriptor '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/hook/pythonpath.dsv'
+[2.258s] INFO:colcon.colcon_core.shell:Creating environment hook '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/hook/pythonpath.sh'
+[2.258s] Level 1:colcon.colcon_core.environment:checking '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/bin'
+[2.258s] Level 1:colcon.colcon_core.environment:create_environment_scripts_only(dgppo_ros_node_pkg)
+[2.258s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/package.ps1'
+[2.258s] INFO:colcon.colcon_core.shell:Creating package descriptor '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/package.dsv'
+[2.259s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/package.sh'
+[2.259s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/package.bash'
+[2.259s] INFO:colcon.colcon_core.shell:Creating package script '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/dgppo_ros_node_pkg/package.zsh'
+[2.259s] Level 1:colcon.colcon_core.environment:create_file_with_runtime_dependencies(/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/share/colcon-core/packages/dgppo_ros_node_pkg)
+[2.259s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:closing loop
+[2.260s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:loop closed
+[2.260s] DEBUG:colcon.colcon_parallel_executor.executor.parallel:run_until_complete finished with '0'
+[2.260s] DEBUG:colcon.colcon_core.event_reactor:joining thread
+[2.266s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.terminal_notifier': Not used on non-Darwin systems
+[2.266s] INFO:colcon.colcon_core.plugin_system:Skipping extension 'colcon_notification.desktop_notification.win32': Not used on non-Windows systems
+[2.266s] INFO:colcon.colcon_notification.desktop_notification:Sending desktop notification using 'notify2'
+[2.285s] DEBUG:colcon.colcon_core.event_reactor:joined thread
+[2.285s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/akilasar/ros2_ws/src/install/local_setup.ps1'
+[2.286s] INFO:colcon.colcon_core.shell:Creating prefix util module '/home/akilasar/ros2_ws/src/install/_local_setup_util_ps1.py'
+[2.287s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/akilasar/ros2_ws/src/install/setup.ps1'
+[2.288s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/akilasar/ros2_ws/src/install/local_setup.sh'
+[2.288s] INFO:colcon.colcon_core.shell:Creating prefix util module '/home/akilasar/ros2_ws/src/install/_local_setup_util_sh.py'
+[2.289s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/akilasar/ros2_ws/src/install/setup.sh'
+[2.289s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/akilasar/ros2_ws/src/install/local_setup.bash'
+[2.289s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/akilasar/ros2_ws/src/install/setup.bash'
+[2.290s] INFO:colcon.colcon_core.shell:Creating prefix script '/home/akilasar/ros2_ws/src/install/local_setup.zsh'
+[2.290s] INFO:colcon.colcon_core.shell:Creating prefix chain script '/home/akilasar/ros2_ws/src/install/setup.zsh'

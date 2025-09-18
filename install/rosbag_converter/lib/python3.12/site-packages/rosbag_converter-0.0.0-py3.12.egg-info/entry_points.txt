@@ -1,0 +1,2 @@
+[console_scripts]
+pcd_converter = rosbag_converter.converter_node:main

@@ -1,0 +1,22 @@
+[1.814s] Invoking command in '/home/akilasar/ros2_ws/src/dgppo_ros_node_pkg': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/dgppo_ros_node_pkg build --build-base /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build install --record /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/install.log --single-version-externally-managed install_data
+[2.045s] running egg_info
+[2.058s] writing ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/PKG-INFO
+[2.058s] writing dependency_links to ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/dependency_links.txt
+[2.058s] writing entry points to ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/entry_points.txt
+[2.058s] writing requirements to ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/requires.txt
+[2.059s] writing top-level names to ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/top_level.txt
+[2.090s] reading manifest file '../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/SOURCES.txt'
+[2.093s] writing manifest file '../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info/SOURCES.txt'
+[2.093s] running build
+[2.093s] running build_py
+[2.099s] running install
+[2.106s] running install_lib
+[2.125s] running install_data
+[2.125s] running install_egg_info
+[2.142s] removing '/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg-0.0.0-py3.12.egg-info' (and everything under it)
+[2.142s] Copying ../build/dgppo_ros_node_pkg/dgppo_ros_node_pkg.egg-info to /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages/dgppo_ros_node_pkg-0.0.0-py3.12.egg-info
+[2.143s] running install_scripts
+[2.254s] Installing carla_bridge_node script to /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/dgppo_ros_node_pkg
+[2.254s] Installing dgppo_ros_node script to /home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/dgppo_ros_node_pkg
+[2.255s] writing list of installed files to '/home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/install.log'
+[2.310s] Invoked command in '/home/akilasar/ros2_ws/src/dgppo_ros_node_pkg' returned '0': CONDA_PROMPT_MODIFIER=(test_env) DEBUGINFOD_URLS=https://debuginfod.ubuntu.com PYTHONPATH=/home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/akilasar/ros2_ws/src/install/dgppo_ros_node_pkg/lib/python3.12/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../build/dgppo_ros_node_pkg build --build-base /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/build install --record /home/akilasar/ros2_ws/src/build/dgppo_ros_node_pkg/install.log --single-version-externally-managed install_data
