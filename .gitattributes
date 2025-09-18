@@ -1,1 +1,2 @@
+*.db3 filter=lfs diff=lfs merge=lfs -text
 clustering/clustering/ground_lidar/rosbag2_2025_09_14-21_45_58_0.db3 filter=lfs diff=lfs merge=lfs -text
