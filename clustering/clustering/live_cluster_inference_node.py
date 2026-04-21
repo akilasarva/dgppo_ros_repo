@@ -71,20 +71,20 @@ class LiveClusterInferenceNode(Node):
         super().__init__('live_cluster_inference_node')
 
         # --- Configuration Parameters (must match training script) ---
-        training_data_name = "ground_lidar"
+        training_data_name = "livox1"
         self.embedding_size = 16
         self.num_ranges = 72
-        self.max_lidar_range = 25
-        self.min_lidar_range = 2.5
+        self.max_lidar_range = 8
+        self.min_lidar_range = 0.1
         self.angle_increment_deg = float(360.0 / self.num_ranges)
         
         # Multiple altitude slices to match training data preprocessing
-        self.z_threshold_upper = 0.15
-        self.z_threshold_lower = -0.1
+        self.z_threshold_upper = 0.75
+        self.z_threshold_lower = 0.3
         self.z_threshold_upper_2 = 0
         self.z_threshold_lower_2 = 0
         
-        self.smoothing_window_size = 15 # Adjust this value as needed
+        self.smoothing_window_size = 10 # Adjust this value as needed
         self.prediction_buffer = []
 
         # Anomaly detection threshold (tune this!)
@@ -120,7 +120,8 @@ class LiveClusterInferenceNode(Node):
         # --- Subscription and Publishing ---
         self.subscription = self.create_subscription(
             PointCloud2,
-            '/livox/lidar',
+            '/carla/ego_vehicle/lidar',
+            #'/livox/lidar',
             self.pointcloud_callback,
             qos_profile=qos_profile_sensor_data
         )

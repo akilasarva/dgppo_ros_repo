@@ -593,6 +593,7 @@ import numpy as np
 from rclpy.qos import qos_profile_sensor_data
 import json
 import math
+import functools as ft
 from typing import NamedTuple, Tuple, Optional, List, Dict
 
 # ROS2 Messages
@@ -605,6 +606,7 @@ import time
 
 # DGPPO and LidarEnv components
 from .dgppo.dgppo.env.lidar_env.lidar_target import LidarTarget, LidarEnvState
+from .dgppo.dgppo.env.lidar_env.base import get_terrain_id as _compute_terrain_id
 from .dgppo.dgppo.algo.dgppo import DGPPO
 from .dgppo.dgppo.algo import make_algo
 from .dgppo.dgppo.utils.graph import GraphsTuple
@@ -624,7 +626,7 @@ class DGPPOROSNode(Node):
         self.dt = 1.0/30
         self.twod_area_size = 1.5
 
-        model_dir = "dgppo/logs/LidarTarget/dgppo/91inter"
+        model_dir = "dgppo/logs/LidarTarget/dgppo/terrain_bent_bridge"  # TODO: set before running
         config_path = os.path.join(model_dir, "config.yaml")
         params_path = os.path.join(model_dir, "models")
         
@@ -637,16 +639,17 @@ class DGPPOROSNode(Node):
         
         self.get_logger().info(f"Loaded config: {config}")
 
-        num_range_bins = 72
-        if 'params' not in env_kwargs:
-            env_kwargs['params'] = {}
-        env_kwargs['params']['num_ranges'] = num_range_bins
-        env_kwargs['params']['top_k_rays'] = 8
-        env_kwargs['params']['comm_radius'] = 0.5
-        
+        # Physical LiDAR bins from /processed_ranges — independent of training n_rays
+        self.n_rays_phys = 72
+        # Merge class defaults so all keys (including n_rays=32) are present,
+        # then apply specific overrides.
+        merged_params = {**LidarTarget.PARAMS, **env_kwargs.get('params', {})}
+        merged_params['top_k_rays'] = 8
+        merged_params['comm_radius'] = 0.5
+
         self.env_instance = LidarTarget(
             num_agents=config.get('num_agents'),
-            params=env_kwargs.get('params', {}),
+            params=merged_params,
             **{k: v for k, v in env_kwargs.items() if k != 'params'}
         )
 
@@ -676,6 +679,7 @@ class DGPPOROSNode(Node):
         self.latest_ranges_msg = None
         self.latest_agent_state_msg = None
         self.latest_predicted_cluster_id = None
+        self.latest_terrain_id = 1  # Grass default until /current_terrain publishes
         self.next_cluster_bonus_awarded = jnp.zeros(self.env_instance.num_agents, dtype=jnp.bool_)
         
         self.is_vehicle_ready = False
@@ -705,6 +709,13 @@ class DGPPOROSNode(Node):
             Int16,
             '/predicted_cluster',
             self.predicted_cluster_callback,
+            10
+        )
+
+        self.terrain_sub = self.create_subscription(
+            Int16,
+            '/current_terrain',
+            self.terrain_callback,
             10
         )
         
@@ -775,16 +786,18 @@ class DGPPOROSNode(Node):
     #     #"around_bridge_0": 4, # You may also have "start" or "cross_bridge_gap" - ensure consistency
     # }
     
-    def _map_cluster_id(self, cluster_id: int) -> int:  ### USE GROUND LIDAR (intersection)
+    def _map_cluster_id(self, cluster_id: int) -> int:  ### USE GROUND LIDAR (bridge)
+        # Maps raw classifier output → canonical bridge cluster IDs:
+        #   0 = open_space, 1 = approach_bridge_0, 2 = on_bridge_0, 3 = exit_bridge_0
         self.get_logger().info(f"cluster id: {cluster_id}")
-        if cluster_id in [3,4]:
-            return 1
-        elif cluster_id in [0]:
-            return 2
-        elif cluster_id in [2]:
-            return 3
-        elif cluster_id in [1,5,6,7,8,9]:
-            return 0
+        if cluster_id in [2, 3]:
+            return 1  # approach_bridge_0
+        elif cluster_id in [5, 6, 7, 8, 9]:
+            return 2  # on_bridge_0
+        elif cluster_id in [-1, 4]:
+            return 3  # exit_bridge_0
+        elif cluster_id in [0, 1]:
+            return 0  # open_space
         else:
             return cluster_id
     
@@ -809,6 +822,10 @@ class DGPPOROSNode(Node):
 
     def predicted_cluster_callback(self, msg: Int16):
         self.latest_predicted_cluster_id = msg.data
+
+    def terrain_callback(self, msg: Int16):
+        # Terrain ID: Road=0, Grass=1, Sidewalk=2
+        self.latest_terrain_id = msg.data
 
     # def control_loop(self):
     #     if not self.is_vehicle_ready:
@@ -1048,13 +1065,12 @@ class DGPPOROSNode(Node):
         self.get_logger().info(f"Teleporting to X: {next_pos_x_carla}, Y: {next_pos_y_carla}")
         
     def agent_step_euler(self, agent_states: AgentState, action: Action) -> AgentState:
-        """By default, use double integrator dynamics"""
+        """Velocity control: action in [-1,1] is directly the velocity command (scaled to ±0.5)."""
         assert action.shape == (self.env_instance.num_agents, self.env_instance.action_dim)
-        print(agent_states.shape)
-        print((self.env_instance.num_agents, self.env_instance.state_dim))
         assert agent_states.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
-        x_dot = jnp.concatenate([agent_states[:, 2:], action * 10.], axis=1)
-        n_state_agent_new = x_dot * self.dt + agent_states
+        vel = action * 0.5                                        # action [-1,1] → vel [-0.5, 0.5]
+        next_pos = agent_states[:, :2] + vel * self.dt            # first-order integration
+        n_state_agent_new = jnp.concatenate([next_pos, vel], axis=1)
         assert n_state_agent_new.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
         return self.clip_state(n_state_agent_new)
     
@@ -1076,75 +1092,85 @@ class DGPPOROSNode(Node):
         lower_limit, upper_limit = self.action_lim()
         return jnp.clip(action, lower_limit, upper_limit)
 
-    def _build_state_and_graph(self, agent_state_np: np.ndarray, scaled_ranges: np.ndarray, mapped_current_cluster_id: int, mapped_start_cluster_id: int, mapped_next_cluster_id: int, bonus_awarded_updated: jnp.ndarray)  -> GraphsTuple:
+    def _build_state_and_graph(self, agent_state_np: np.ndarray, scaled_ranges: np.ndarray,
+                               mapped_current_cluster_id: int, mapped_start_cluster_id: int,
+                               mapped_next_cluster_id: int, bonus_awarded_updated: jnp.ndarray) -> GraphsTuple:
         self.get_logger().info(f"Agent state (scaled): {agent_state_np}")
-        
-        num_ranges = self.env_instance.params['num_ranges']
-        top_k = self.env_instance.params['top_k_rays']
-        
-        if scaled_ranges.shape[0] != num_ranges:
-            self.get_logger().warn(f"Received {scaled_ranges.shape[0]} ranges, but expected {num_ranges}. This may cause errors.")
-        
-        angle_increment = (2 * np.pi) / num_ranges
-        angles = np.arange(num_ranges) * angle_increment
-        
-        # Accounting for CARLA-2D flip
-        x_coords = scaled_ranges * np.sin(angles)
-        y_coords = scaled_ranges * np.cos(angles)
-        
-        lidar_data_np = np.stack([x_coords, y_coords], axis=1)
 
-        distances = np.linalg.norm(lidar_data_np, axis=1)
-        sorted_indices = np.argsort(distances)
-        final_lidar_data = lidar_data_np[sorted_indices[:top_k]]
-        
-        if final_lidar_data.shape[0] < top_k:
-            padding_size = top_k - final_lidar_data.shape[0]
-            padding = np.zeros((padding_size, 2), dtype=np.float32)
-            final_lidar_data = np.concatenate([final_lidar_data, padding], axis=0)
-        
-        final_lidar_data = final_lidar_data[np.newaxis, :, :]
+        # n_rays: beam count used during training (32).
+        # get_graph expects lidar_data (n_agents, 2*n_rays, 2):
+        #   first  n_rays entries per agent = obstacle hits
+        #   last   n_rays entries per agent = terrain boundary hits
+        # get_graph then selects top_k (8) from each type internally.
+        n_rays = self.env_instance.params['n_rays']  # 32
 
-        current_cluster_oh = jnp.array(jax.nn.one_hot(mapped_current_cluster_id, self.num_clusters))
-        start_cluster_oh = jnp.array(jax.nn.one_hot(mapped_start_cluster_id, self.num_clusters))
-        next_cluster_oh = jnp.array(jax.nn.one_hot(mapped_next_cluster_id, self.num_clusters))
-        
+        agent_pos_2d = np.array(agent_state_np[0, :2])  # (2,) model-space xy
+
+        # ── 1. Obstacle hits: resample n_rays_phys (72) bins → n_rays (32) beams ──
+        # Training angles go from -π to π; CARLA-2D axis flip: x=sin, y=cos.
+        angles_phys = np.linspace(0, 2 * np.pi, self.n_rays_phys, endpoint=False)
+        angles_beam = np.linspace(-np.pi, np.pi - 2 * np.pi / n_rays, n_rays)
+        ranges_res  = np.interp(np.mod(angles_beam, 2 * np.pi), angles_phys, scaled_ranges)
+        obs_hits = np.stack([
+            agent_pos_2d[0] + ranges_res * np.sin(angles_beam),
+            agent_pos_2d[1] + ranges_res * np.cos(angles_beam),
+        ], axis=1).astype(np.float32)  # (n_rays, 2), absolute model-space positions
+
+        # ── 2. Terrain boundary hits: zeros (geometry not wired yet) ─────────────
+        # TODO: replace with geometry-based computation once bridge_params are loaded
+        # from the plan JSON (bridge_center, bridge_theta, bridge_gap_width, etc.).
+        bnd_hits = np.zeros((n_rays, 2), dtype=np.float32)  # (n_rays, 2)
+
+        # ── 3. Flat semantic lidar arrays expected by LidarEnvState ──────────────
+        # Layout: [obs_hits | bnd_hits] and [obs_tids | bnd_tids].
+        # Terrain IDs: Road=0, Grass=1, Sidewalk=2. Default all to Grass (1).
+        all_hit_positions = np.concatenate([obs_hits, bnd_hits], axis=0)  # (2*n_rays, 2)
+        all_terrain_ids   = np.ones(2 * n_rays, dtype=np.int32)           # (2*n_rays,)
+
+        # ── 4. Agent terrain OH from /current_terrain topic (Road=0, Grass=1, Sidewalk=2) ──
+        current_terrain_oh = jax.nn.one_hot(self.latest_terrain_id, 3)  # (3,)
+
+        # ── 5. Cluster one-hots & bearing ────────────────────────────────────────
+        current_cluster_oh = jax.nn.one_hot(mapped_current_cluster_id, self.num_clusters)
+        start_cluster_oh   = jax.nn.one_hot(mapped_start_cluster_id,   self.num_clusters)
+        next_cluster_oh    = jax.nn.one_hot(mapped_next_cluster_id,    self.num_clusters)
+
         angular_offset = self.get_parameter('angular_offset_deg').get_parameter_value().double_value
-
         key = f"{mapped_start_cluster_id}-{mapped_next_cluster_id}"
         bearing_value = self.bearing_map.get(key, 0.0) + math.radians(angular_offset)
-        self.get_logger().info(f"Start: {mapped_start_cluster_id}, Current: {mapped_current_cluster_id}, Next: {mapped_next_cluster_id}, Bearing: {bearing_value}")
-        
-        goal_state_np = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
-        
-        inter_center_env_state: Float[Array, "2"] = jnp.array([0.0, 0.0])
-        passage_width_env_state: Float[Array, ""] = jnp.array(0.0)
-        obs_len_env_state: Float[Array, ""] = jnp.array(0.0)
-        global_angle_env_state: Float[Array, ""] = jnp.array(0.0)
-        is_four_way_env_state: bool = False
-
-        env_state = LidarEnvState(
-            agent=agent_state_np, 
-            goal=jnp.array([goal_state_np]),
-            obstacle=jnp.zeros((0, 2)),
-            bearing=jnp.array([bearing_value]),
-            current_cluster_oh=jnp.array([current_cluster_oh]),
-            start_cluster_oh = jnp.array([start_cluster_oh]),
-            next_cluster_oh=jnp.array([next_cluster_oh]),
-            next_cluster_bonus_awarded=bonus_awarded_updated,
-            bridge_center=jnp.zeros((0,2)),
-            bridge_length=jnp.zeros((0,)),
-            bridge_gap_width=jnp.zeros((0,)),
-            bridge_wall_thickness=jnp.zeros((0,)),
-            bridge_theta=jnp.zeros((0,))
-            # is_four_way=is_four_way_env_state,
-            # center=inter_center_env_state,
-            # passage_width=passage_width_env_state,
-            # obs_len=obs_len_env_state,
-            # global_angle=global_angle_env_state
+        self.get_logger().info(
+            f"Start:{mapped_start_cluster_id} Cur:{mapped_current_cluster_id} "
+            f"Next:{mapped_next_cluster_id} Bearing:{bearing_value:.3f}"
         )
 
-        graph = self.env_instance.get_graph(env_state, jnp.array(final_lidar_data))
+        goal_state_np = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
+
+        env_state = LidarEnvState(
+            agent=agent_state_np,
+            goal=jnp.array([goal_state_np]),
+            obstacle=None,
+            bearing=jnp.array([bearing_value]),
+            current_cluster_oh=jnp.array([current_cluster_oh]),
+            start_cluster_oh=jnp.array([start_cluster_oh]),
+            next_cluster_oh=jnp.array([next_cluster_oh]),
+            next_cluster_bonus_awarded=bonus_awarded_updated,
+            # --- New fields: terrain_bent_bridge LidarEnvState ---
+            current_terrain_oh=jnp.array([current_terrain_oh]),        # (1, 3)
+            lidar_hit_terrain_ids=jnp.array(all_terrain_ids),          # (2*n_rays,)
+            lidar_hit_positions=jnp.array(all_hit_positions),          # (2*n_rays, 2)
+            # --- Bridge geometry scalars (zeros = no geometry during inference) ---
+            bridge_center=jnp.zeros(2),
+            bridge_length=jnp.array(0.0),
+            bridge_gap_width=jnp.array(0.0),
+            bridge_wall_thickness=jnp.array(0.0),
+            bridge_theta=jnp.array(0.0),
+            bridge_bend_angle=jnp.array(0.0),
+            terrain_config=jnp.array(1, dtype=jnp.int32),
+        )
+
+        # get_graph takes (n_agents, 2*n_rays, 2) and selects top_k per type internally
+        lidar_data_batched = jnp.array(all_hit_positions[np.newaxis, :, :])  # (1, 2*n_rays, 2)
+        graph = self.env_instance.get_graph(env_state, lidar_data_batched)
         return graph
     
     def teleport_and_wait(self, transform: carla.Transform):
