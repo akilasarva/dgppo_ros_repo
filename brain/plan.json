@@ -1,0 +1,45 @@
+{
+  "plan_name": "Hockfield Path A",
+  "description": "Navigate from road through an intersection and stop at trash can landmark",
+  "cluster_labels": {
+    "0": "On Road",
+    "1": "Enter Intersection",
+    "2": "In Intersection",
+    "3": "Exit Intersection",
+    "4": "On Road (Destination)"
+  },
+  "steps": [
+    {
+      "step": 0,
+      "description": "On road approaching the intersection",
+      "start_cluster": 0,
+      "goal_cluster": 1,
+      "transition_cue": null,
+      "notes": "No cue needed — advance immediately on entering intersection approach"
+    },
+    {
+      "step": 1,
+      "description": "Entering the intersection",
+      "start_cluster": 1,
+      "goal_cluster": 2,
+      "transition_cue": null,
+      "notes": "No cue needed — advance immediately on entering intersection"
+    },
+    {
+      "step": 2,
+      "description": "Crossing through the intersection",
+      "start_cluster": 2,
+      "goal_cluster": 3,
+      "transition_cue": null,
+      "notes": "No cue needed — advance immediately on exiting intersection"
+    },
+    {
+      "step": 3,
+      "description": "Exiting intersection back onto road — stop at bench landmark on the right",
+      "start_cluster": 3,
+      "goal_cluster": 0,
+      "transition_cue": "a light brown bench",
+      "notes": "Stop when trash can and recycling bin landmark is confirmed by VLM"
+    }
+  ]
+}

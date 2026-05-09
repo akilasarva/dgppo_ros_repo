@@ -1,0 +1,15 @@
+<launch>
+  <!-- Play the rosbag (optional — remove if you play it manually) -->
+  <!-- <node pkg="rosbag" type="play" name="bag_player" args="--clock /path/to/your.bag" /> -->
+
+  <!-- Your existing lidar clustering node — publishes /current_cluster -->
+  <!-- <node pkg="your_pkg" type="cluster_node.py" name="cluster_node" output="screen" /> -->
+
+  <!-- Brain controller -->
+  <node pkg="your_pkg" type="brain_controller.py" name="brain_controller" output="screen">
+    <param name="plan_path"           value="$(find your_pkg)/plan.json" />
+    <param name="image_topic"         value="/camera/image_raw" />
+    <param name="vlm_check_interval"  value="2.0" />
+    <param name="vlm_model"           value="gpt-4o-mini" />
+  </node>
+</launch>
