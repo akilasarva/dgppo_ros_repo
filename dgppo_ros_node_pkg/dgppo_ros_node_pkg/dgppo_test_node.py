@@ -62,10 +62,6 @@ from .dgppo.dgppo.utils.graph import GraphsTuple
 from .dgppo.dgppo.utils.typing import Array, Action, AgentState, State
 
 
-def _quat_to_yaw(x, y, z, w) -> float:
-    """Extract yaw (rotation around Z-up axis) from a quaternion."""
-    return math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
-
 
 class DGPPOTestNode(Node):
     def __init__(self):
@@ -109,7 +105,7 @@ class DGPPOTestNode(Node):
             env=self.env_instance,
             node_dim=self.env_instance.node_dim,
             edge_dim=self.env_instance.edge_dim,
-            state_dim=self.env_instance.state_dim,
+            state_dim=self.env_instance.state_dim,  
             action_dim=self.env_instance.action_dim,
             n_agents=self.env_instance.num_agents,
             **algo_kwargs
@@ -134,9 +130,13 @@ class DGPPOTestNode(Node):
 
         # Scaling constants — only needed to seed initial position from centroid.
         # The cart doesn't need these for movement; dead-reckoning is in model space.
-        self.scale_2d_3d = 47.0   # matches training environment
-        self.origin_x = 55.0
-        self.origin_y = -210.0
+        self.scale_2d_3d = 11.0   # matches training environment
+        self.origin_x = 0.0
+        self.origin_y = 0.0
+
+        # IMU yaw integration (Livox does not populate orientation quaternion)
+        self._imu_yaw = 0.0
+        self._imu_last_stamp = None
 
         # ── Subscriptions ────────────────────────────────────────────────────────
         self.ranges_sub = self.create_subscription(
@@ -153,13 +153,15 @@ class DGPPOTestNode(Node):
         )
         self.imu_sub = self.create_subscription(
             Imu, '/livox/imu',
-            self._cb_imu, qos_profile=qos_profile_sensor_data
+            self._cb_imu, 10  # RELIABLE depth-10, matches Livox driver QoS
         )
 
         # ── Publishers (visualiser listens to these) ──────────────────────────
-        self.action_pub    = self.create_publisher(Float32MultiArray, '/dgppo_action',    10)
-        self.planstep_pub  = self.create_publisher(Int32,             '/dgppo_plan_step', 10)
-        self.imu_yaw_pub   = self.create_publisher(Float32MultiArray, '/dgppo_imu_yaw',   10)
+        self.action_pub      = self.create_publisher(Float32MultiArray, '/dgppo_action',      10)
+        self.planstep_pub    = self.create_publisher(Int32,             '/dgppo_plan_step',   10)
+        self.imu_yaw_pub     = self.create_publisher(Float32MultiArray, '/dgppo_imu_yaw',     10)
+        self.lidar_all_pub   = self.create_publisher(Float32MultiArray, '/dgppo_lidar_all',   10)
+        self.lidar_topk_pub  = self.create_publisher(Float32MultiArray, '/dgppo_lidar_topk',  10)
 
         self.timer = self.create_timer(0.1, self._control_loop)
         self.get_logger().info("DGPPO Test Node ready.  Waiting for sensor data...")
@@ -176,12 +178,14 @@ class DGPPOTestNode(Node):
         self.latest_terrain_id = msg.data
 
     def _cb_imu(self, msg):
-        yaw = _quat_to_yaw(
-            msg.orientation.x, msg.orientation.y,
-            msg.orientation.z, msg.orientation.w
-        )
+        stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
+        if self._imu_last_stamp is not None:
+            dt = stamp - self._imu_last_stamp
+            if 0.0 < dt < 1.0:
+                self._imu_yaw -= msg.angular_velocity.z * dt  # negated: Livox mounted upside-down
+        self._imu_last_stamp = stamp
         out = Float32MultiArray()
-        out.data = [float(yaw)]
+        out.data = [float(self._imu_yaw)]
         self.imu_yaw_pub.publish(out)
 
     # ── Control loop ──────────────────────────────────────────────────────────
@@ -284,6 +288,23 @@ class DGPPOTestNode(Node):
         # Dead-reckon agent state forward (no real movement command)
         self.current_agent_state = self._euler_step(self.current_agent_state, action)
 
+        # Reset position + RNN when agent reaches the far edge of model space.
+        # In training this boundary is never reached without a cluster transition;
+        # without one the RNN diverges and produces OOD actions.
+        if float(self.current_agent_state[0, 1]) >= self.twod_area_size * 0.9:
+            start_id = str(self.plan_sequence[self.current_plan_step_index]["start"])
+            if start_id in self.cluster_centroids:
+                c = self.cluster_centroids[start_id]
+                sx = (c[1] - self.origin_y) / self.scale_2d_3d
+                sy = (c[0] - self.origin_x) / self.scale_2d_3d
+                self.current_agent_state = jnp.expand_dims(
+                    jnp.array([sx, sy, 0.0, 0.0], dtype=np.float32), axis=0
+                )
+            else:
+                self.current_agent_state = jnp.zeros((1, 4), dtype=np.float32)
+            self.rnn_state = self.algo.init_rnn_state
+            self.get_logger().info("Dead-reckoning boundary reached — resetting position and RNN.")
+
         reward, bonus = self.env_instance.get_reward(graph, action)
         self.next_cluster_bonus_awarded = (
             jnp.zeros(self.env_instance.num_agents, dtype=jnp.bool_)
@@ -298,6 +319,30 @@ class DGPPOTestNode(Node):
         step_msg = Int32()
         step_msg.data = self.current_plan_step_index
         self.planstep_pub.publish(step_msg)
+
+        # ── Publish LiDAR hit positions for visualiser ───────────────────────
+        n_rays  = self.env_instance.params['n_rays']
+        top_k   = self.env_instance.params['top_k_rays']
+        agent_pos_2d = np.array(self.current_agent_state[0, :2])
+        angles_phys  = np.linspace(0, 2 * np.pi, self.n_rays_phys, endpoint=False)
+        angles_beam  = np.linspace(-np.pi, np.pi - 2 * np.pi / n_rays, n_rays)
+        ranges_sc    = np.array(self.latest_ranges_msg.data, dtype=np.float32) / self.scale_2d_3d
+        ranges_res   = np.interp(np.mod(angles_beam, 2 * np.pi), angles_phys, ranges_sc)
+        obs_hits = np.stack([
+            agent_pos_2d[0] + ranges_res * np.sin(angles_beam),
+            agent_pos_2d[1] + ranges_res * np.cos(angles_beam),
+        ], axis=1)
+        rel_hits = obs_hits - agent_pos_2d  # centre on agent for display
+
+        all_msg = Float32MultiArray()
+        all_msg.data = rel_hits.flatten().tolist()
+        self.lidar_all_pub.publish(all_msg)
+
+        dists = np.linalg.norm(rel_hits, axis=-1)
+        topk_idx = np.argsort(dists)[:top_k]
+        topk_msg = Float32MultiArray()
+        topk_msg.data = rel_hits[topk_idx].flatten().tolist()
+        self.lidar_topk_pub.publish(topk_msg)
 
         self.get_logger().info(
             f"Action: [{action[0,0]:.3f}, {action[0,1]:.3f}]  "
@@ -321,7 +366,7 @@ class DGPPOTestNode(Node):
         return step
 
     def _load_plan_and_cluster_data(self, model_dir):
-        plan_path = "plans/highlevel_plan.json"
+        plan_path = "plans/bridge.json"
         if not os.path.exists(plan_path):
             self.get_logger().error(f"Plan file not found: {plan_path}")
             return [], {}, {}

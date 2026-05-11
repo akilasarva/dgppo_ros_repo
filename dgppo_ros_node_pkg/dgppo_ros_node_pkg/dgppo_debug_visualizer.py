@@ -77,6 +77,8 @@ class DebugState:
         self.bearing_map   = bearing_map
         self.has_action    = False
         self.imu_yaw       = None  # radians, None = not received yet
+        self.lidar_all     = None  # (n_rays, 2) hit positions relative to agent
+        self.lidar_topk    = None  # (top_k, 2) closest hits sent to policy
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -99,6 +101,11 @@ class DebugState:
         with self._lock:
             self.imu_yaw = yaw_rad
 
+    def set_lidar(self, all_hits, topk_hits):
+        with self._lock:
+            self.lidar_all  = all_hits
+            self.lidar_topk = topk_hits
+
     def snapshot(self):
         with self._lock:
             return dict(
@@ -110,6 +117,8 @@ class DebugState:
                 bearing_map  = self.bearing_map,
                 has_action   = self.has_action,
                 imu_yaw      = self.imu_yaw,
+                lidar_all    = self.lidar_all,
+                lidar_topk   = self.lidar_topk,
             )
 
 
@@ -124,6 +133,9 @@ class DebugSubscriber(Node):
         self.create_subscription(Int32,             '/current_terrain',   self._cb_terrain,  10)
         self.create_subscription(Int32,             '/dgppo_plan_step',   self._cb_planstep, 10)
         self.create_subscription(Float32MultiArray, '/dgppo_imu_yaw',     self._cb_imu_yaw,  10)
+        self.create_subscription(Float32MultiArray, '/dgppo_lidar_all',   self._cb_lidar_all,  10)
+        self.create_subscription(Float32MultiArray, '/dgppo_lidar_topk',  self._cb_lidar_topk, 10)
+        self._lidar_all_buf  = None
 
     def _cb_action(self, msg):
         if len(msg.data) >= 2:
@@ -141,6 +153,15 @@ class DebugSubscriber(Node):
     def _cb_imu_yaw(self, msg):
         if len(msg.data) >= 1:
             self.state.set_imu_yaw(msg.data[0])
+
+    def _cb_lidar_all(self, msg):
+        if len(msg.data) >= 2:
+            self._lidar_all_buf = np.array(msg.data, dtype=np.float32).reshape(-1, 2)
+
+    def _cb_lidar_topk(self, msg):
+        if len(msg.data) >= 2 and self._lidar_all_buf is not None:
+            topk = np.array(msg.data, dtype=np.float32).reshape(-1, 2)
+            self.state.set_lidar(self._lidar_all_buf, topk)
 
 
 def ros_thread(state: DebugState):
@@ -182,11 +203,11 @@ def build_figure():
     th = np.linspace(0, 2 * np.pi, 200)
     ax.plot(np.cos(th), np.sin(th), color='#333333', lw=1, ls='--')
 
-    # axis labels (world-frame)
-    ax.text( 1.15,  0.0,  'CARLA +X\n(East)',   color='#555', fontsize=7, ha='center', va='center')
-    ax.text(-1.15,  0.0,  'CARLA -X\n(West)',   color='#555', fontsize=7, ha='center', va='center')
-    ax.text( 0.0,   1.15, 'CARLA +Y\n(North)',  color='#555', fontsize=7, ha='center', va='center')
-    ax.text( 0.0,  -1.15, 'CARLA -Y\n(South)',  color='#555', fontsize=7, ha='center', va='center')
+    # axis labels (cart frame: up=forward, right=right)
+    ax.text( 1.15,  0.0,  'right\n(+x)',    color='#555', fontsize=7, ha='center', va='center')
+    ax.text(-1.15,  0.0,  'left\n(-x)',     color='#555', fontsize=7, ha='center', va='center')
+    ax.text( 0.0,   1.15, 'forward\n(+y)', color='#555', fontsize=7, ha='center', va='center')
+    ax.text( 0.0,  -1.15, 'back\n(-y)',    color='#555', fontsize=7, ha='center', va='center')
     ax.set_title('Policy velocity command  (ground plane)', color=WHITE, fontsize=10, pad=6)
 
     # legend patches
@@ -194,6 +215,8 @@ def build_figure():
         mpatches.Patch(color='#00e676', label='action (policy)'),
         mpatches.Patch(color='#ffcc00', label='plan bearing'),
         mpatches.Patch(color='#e040fb', label='cart heading (IMU)'),
+        mpatches.Patch(color='#444488', label='lidar hits (all)'),
+        mpatches.Patch(color='#ff9900', label='lidar hits (top-k)'),
     ]
     ax.legend(handles=leg, loc='lower right', facecolor=BG_MID, edgecolor=GRAY,
               labelcolor=WHITE, fontsize=8)
@@ -211,9 +234,15 @@ def run_visualizer(state: DebugState):
     history = deque(maxlen=HISTORY_LEN)
 
     # mutable handles so we can remove/redraw each frame
-    handles = {'arrow': None, 'bearing': None, 'imu': None, 'trail': [], 'texts': [], 'speed_ring': None}
+    handles = {'arrow': None, 'bearing': None, 'imu': None, 'trail': [], 'texts': [], 'speed_ring': None, 'lidar': []}
 
     def _clear():
+        for h in handles['lidar']:
+            try:
+                h.remove()
+            except Exception:
+                pass
+        handles['lidar'].clear()
         for key in ('arrow', 'bearing', 'imu', 'speed_ring'):
             h = handles[key]
             if h is not None:
@@ -240,11 +269,10 @@ def run_visualizer(state: DebugState):
         _clear()
 
         a0, a1 = float(snap['action'][0]), float(snap['action'][1])
-        # Convert model-space action to CARLA world arrow components:
-        #   action[0] (model-x) → CARLA -Y  → arrow_y = -a0
-        #   action[1] (model-y) → CARLA +X  → arrow_x =  a1
-        arrow_x =  a1
-        arrow_y = -a0
+        # Model space: forward = +y = action[1], right = +x = action[0]
+        # Plot: up = forward, right = right → direct mapping
+        arrow_x = a0
+        arrow_y = a1
         mag = math.hypot(arrow_x, arrow_y)
 
         terrain_id    = snap['terrain_id']
@@ -253,6 +281,8 @@ def run_visualizer(state: DebugState):
         plan_sequence = snap['plan_sequence']
         bearing_map   = snap['bearing_map']
         imu_yaw       = snap['imu_yaw']
+        lidar_all     = snap.get('lidar_all')
+        lidar_topk    = snap.get('lidar_topk')
 
         mapped_cluster = RAW_TO_MAPPED.get(raw_cluster, raw_cluster) if raw_cluster is not None else None
 
@@ -288,13 +318,32 @@ def run_visualizer(state: DebugState):
                                 alpha=0.75, mutation_scale=20)
             )
 
+        # ── LiDAR rays (lines from origin to hit) ────────────────────────────
+        if lidar_all is not None:
+            # one Line2D per ray is slow; use LineCollection for all at once
+            from matplotlib.collections import LineCollection
+            segs = [[[0, 0], [x, y]] for x, y in lidar_all]
+            lc = LineCollection(segs, colors='#444444', linewidths=0.6,
+                                alpha=0.5, zorder=2)
+            ax.add_collection(lc)
+            handles['lidar'].append(lc)
+            # small dot at each hit
+            h = ax.scatter(lidar_all[:, 0], lidar_all[:, 1],
+                           s=6, color='#666666', zorder=2, linewidths=0)
+            handles['lidar'].append(h)
+        if lidar_topk is not None:
+            h = ax.scatter(lidar_topk[:, 0], lidar_topk[:, 1],
+                           s=40, color='#ff9900', zorder=3, linewidths=0)
+            handles['lidar'].append(h)
+
         # ── IMU cart heading arrow ────────────────────────────────────────────
         # yaw=0 = IMU reference direction at startup; shown as a unit-length arrow.
         # Direction is relative to the IMU's own frame — compare it visually to the
         # policy arrow to judge if the cart is pointed the right way.
         if imu_yaw is not None:
-            ix = math.cos(imu_yaw)
-            iy = math.sin(imu_yaw)
+            display_yaw = imu_yaw + math.pi / 2  # mounting offset: IMU 0 is East, display 0 is North
+            ix = math.cos(display_yaw)
+            iy = math.sin(display_yaw)
             handles['imu'] = ax.annotate(
                 '', xy=(ix, iy), xytext=(0, 0),
                 arrowprops=dict(arrowstyle='->', color='#e040fb', lw=2.5,
@@ -365,13 +414,13 @@ def run_visualizer(state: DebugState):
             rows.append(('PLAN', 'loading...', GRAY))
         rows.append(('', '', ''))
 
-        rows.append(('a[0] (→ CARLA -Y)', f'{a0:+.4f}', '#cccccc'))
-        rows.append(('a[1] (→ CARLA +X)', f'{a1:+.4f}', '#cccccc'))
+        rows.append(('a[0] (right/+x)', f'{a0:+.4f}', '#cccccc'))
+        rows.append(('a[1] (fwd/+y)',   f'{a1:+.4f}', '#cccccc'))
         rows.append(('SPEED |a|', f'{mag:.4f}', '#aaaaaa'))
 
         if imu_yaw is not None:
             rows.append(('', '', ''))
-            rows.append(('IMU YAW (rel)', f'{math.degrees(imu_yaw):+.1f}°', '#e040fb'))
+            rows.append(('IMU YAW (rel)', f'{math.degrees(imu_yaw + math.pi / 2):+.1f}°', '#e040fb'))
 
         # Draw rows
         y = 0.97
@@ -400,10 +449,11 @@ def run_visualizer(state: DebugState):
 
 def main():
     plan_path = sys.argv[1] if len(sys.argv) > 1 else \
-        os.path.join(os.path.dirname(__file__), 'plans', 'highlevel_plan.json')
+        os.path.join(os.path.dirname(__file__), 'plans', 'bridge.json')
 
     plan_sequence, bearing_map = [], {}
     if os.path.exists(plan_path):
+        
         with open(plan_path) as f:
             data = json.load(f)
         plan_sequence = data.get('plan_sequence', [])
