@@ -157,9 +157,10 @@ class DGPPOROSNode(Node):
 
     # yveys: Spot get_state function for easier access.
     def _get_spot_state(self):
-        def Point(x, y):
-            self.x = x
-            self.y = y
+        class Point:
+            def __init__(self, x, y):
+                self.x = x
+                self.y = y
 
         robot_state = self.state_client.get_robot_state()
         kinematic_state = robot_state.kinematic_state
