@@ -323,8 +323,10 @@ class DGPPOROSNode(Node):
 
         # new_movement_targets[2:4] = velocity in sim space (vel = action * 0.5)
         # Reverse sim→Spot axis mapping: v_spot_x = sim_vel_y, v_spot_y = -sim_vel_x
-        v_x_target = float(new_movement_targets[3]) * self.scale_2d_3d
-        v_y_target = -float(new_movement_targets[2]) * self.scale_2d_3d
+        # Clamp to Spot's safe walking speed (SDK hard limit is 2.0 m/s)
+        SPOT_MAX_VEL = 1.0  # m/s — conservative safe limit
+        v_x_target = float(np.clip(float(new_movement_targets[3]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
+        v_y_target = float(np.clip(-float(new_movement_targets[2]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
 
         velocity_command = RobotCommandBuilder.synchro_velocity_command(v_x=v_x_target, v_y=v_y_target, v_rot=0.0)
         self.command_client.robot_command(command=velocity_command, end_time_secs=time.time() + 0.5)
