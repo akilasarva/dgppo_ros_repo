@@ -1,0 +1,28 @@
+running develop
+running egg_info
+creating clustering.egg-info
+writing clustering.egg-info/PKG-INFO
+writing dependency_links to clustering.egg-info/dependency_links.txt
+writing entry points to clustering.egg-info/entry_points.txt
+writing requirements to clustering.egg-info/requires.txt
+writing top-level names to clustering.egg-info/top_level.txt
+writing manifest file 'clustering.egg-info/SOURCES.txt'
+reading manifest file 'clustering.egg-info/SOURCES.txt'
+writing manifest file 'clustering.egg-info/SOURCES.txt'
+running build_ext
+Creating /home/akilasar/ros2_ws/src/install/clustering/lib/python3.12/site-packages/clustering.egg-link (link to .)
+Installing carla_scaling script to /home/akilasar/ros2_ws/src/install/clustering/lib/clustering
+Installing clock_publisher script to /home/akilasar/ros2_ws/src/install/clustering/lib/clustering
+Installing live_cluster_inference_node script to /home/akilasar/ros2_ws/src/install/clustering/lib/clustering
+
+Installed /home/akilasar/ros2_ws/src/build/clustering
+running symlink_data
+creating /home/akilasar/ros2_ws/src/install/clustering/share/ament_index
+creating /home/akilasar/ros2_ws/src/install/clustering/share/ament_index/resource_index
+creating /home/akilasar/ros2_ws/src/install/clustering/share/ament_index/resource_index/packages
+symbolically linking /home/akilasar/ros2_ws/src/build/clustering/resource/clustering -> /home/akilasar/ros2_ws/src/install/clustering/share/ament_index/resource_index/packages
+symbolically linking /home/akilasar/ros2_ws/src/build/clustering/package.xml -> /home/akilasar/ros2_ws/src/install/clustering/share/clustering
+creating /home/akilasar/ros2_ws/src/install/clustering/share/clustering/launch
+symbolically linking /home/akilasar/ros2_ws/src/build/clustering/launch/pointcloud_to_laserscan.launch.py -> /home/akilasar/ros2_ws/src/install/clustering/share/clustering/launch
+creating /home/akilasar/ros2_ws/src/install/clustering/share/clustering/config
+symbolically linking /home/akilasar/ros2_ws/src/build/clustering/config/ekf.yaml -> /home/akilasar/ros2_ws/src/install/clustering/share/clustering/config

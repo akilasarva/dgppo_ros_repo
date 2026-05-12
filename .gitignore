@@ -2,3 +2,7 @@
 
 # Ignore all .db3 files
 *.db3
+build/
+log/
+install/
+*.env

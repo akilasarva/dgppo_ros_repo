@@ -1,3 +1,4 @@
+import re
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -24,61 +25,72 @@ from sklearn import metrics
 # To make this a self-contained, runnable script, the necessary function
 # `get_ranges_from_points` is now included below.
 
-def get_ranges_from_points(points, config):
+def get_lidar_features_from_points(points, config, intensities=None):
     """
-    Processes a point cloud to generate a 1D Lidar range scan.
-    Points are filtered by z-axis and radial distance (min/max range).
-    """
-    if points.size == 0:
-        return np.full(config['num_ranges'], config['max_lidar_range'])
+    Returns per-sector min range and (optionally) mean intensity.
 
-    # Filter points by altitude
+    Args:
+        points:      (N, 3) xyz array
+        config:      config dict
+        intensities: (N,) float array; if provided, also computes mean intensity per sector
+
+    Returns:
+        ranges:              (num_ranges,) min-range per sector
+        intensity_per_sector (num_ranges,) mean intensity per sector, or None
+    """
+    num_ranges = config['num_ranges']
+    empty_ranges = np.full(num_ranges, config['max_lidar_range'])
+    empty_intens = np.zeros(num_ranges) if intensities is not None else None
+
+    if points.size == 0:
+        return empty_ranges, empty_intens
+
     slice_mask_1 = (np.abs(points[:, 2]) >= config['z_threshold_lower']) & \
                    (np.abs(points[:, 2]) <= config['z_threshold_upper'])
     slice_mask_2 = (np.abs(points[:, 2]) >= config['z_threshold_lower_2']) & \
                    (np.abs(points[:, 2]) <= config['z_threshold_upper_2'])
-
     combined_z_mask = slice_mask_1 | slice_mask_2
-    points_z_filtered = points[combined_z_mask]
+    points_z = points[combined_z_mask]
+    intens_z = intensities[combined_z_mask] if intensities is not None else None
 
-    if points_z_filtered.size == 0:
-        return np.full(config['num_ranges'], config['max_lidar_range'])
+    if points_z.size == 0:
+        return empty_ranges, empty_intens
 
-    # Calculate radial distances and apply min/max range filter
-    distances = np.linalg.norm(points_z_filtered[:, :2], axis=1)
-    
-    # Filter points by radial range
-    radial_mask = (distances >= config['min_lidar_range']) & (distances <= config['max_lidar_range'])
-    points_filtered = points_z_filtered[radial_mask]
+    dists_z = np.linalg.norm(points_z[:, :2], axis=1)
+    radial_mask = (dists_z >= config['min_lidar_range']) & (dists_z <= config['max_lidar_range'])
+    points_f = points_z[radial_mask]
+    intens_f = intens_z[radial_mask] if intens_z is not None else None
 
-    if points_filtered.size == 0:
-        return np.full(config['num_ranges'], config['max_lidar_range'])
+    if points_f.size == 0:
+        return empty_ranges, empty_intens
 
-    # Generate 1D ranges
+    angle_increment_deg = float(360.0 / num_ranges)
     ranges = []
-    num_angles = config['num_ranges']
-    angle_increment_deg = float(360.0 / num_angles)
+    intens_out = [] if intensities is not None else None
 
-    for i in range(num_angles):
-        angle_deg = i * angle_increment_deg
-        angle_rad = np.deg2rad(angle_deg)
-        
-        # Determine angular tolerance for each sector
+    for i in range(num_ranges):
+        angle_rad = np.deg2rad(i * angle_increment_deg)
         angular_tolerance = np.deg2rad(angle_increment_deg / 2)
-        point_angles = np.arctan2(points_filtered[:, 1], points_filtered[:, 0])
+        point_angles = np.arctan2(points_f[:, 1], points_f[:, 0])
         angular_diff = np.arctan2(np.sin(point_angles - angle_rad), np.cos(point_angles - angle_rad))
         sector_mask = np.abs(angular_diff) <= angular_tolerance
-        sector_points = points_filtered[sector_mask]
-        
-        # Find the minimum distance in the sector
+        sector_points = points_f[sector_mask]
+
         if sector_points.shape[0] > 0:
-            distances_in_sector = np.linalg.norm(sector_points[:, :2], axis=1)
-            min_dist = np.min(distances_in_sector)
-            ranges.append(min_dist)
+            ranges.append(np.min(np.linalg.norm(sector_points[:, :2], axis=1)))
+            if intens_f is not None:
+                intens_out.append(np.mean(intens_f[sector_mask]))
         else:
             ranges.append(config['max_lidar_range'])
-            
-    return np.array(ranges)
+            if intens_out is not None:
+                intens_out.append(0.0)
+
+    return np.array(ranges), (np.array(intens_out) if intens_out is not None else None)
+
+
+def get_ranges_from_points(points, config):
+    ranges, _ = get_lidar_features_from_points(points, config, intensities=None)
+    return ranges
 class LidarEncoder(nn.Module):
     def __init__(self, embedding_size):
         super(LidarEncoder, self).__init__()
@@ -191,30 +203,58 @@ class Autoencoder(nn.Module):
 #         decoded = self.decoder(encoded)
 #         return decoded
 
+def _pcd_sort_key(filepath):
+    """Numeric sort for 'seconds-nanoseconds.pcd' filenames."""
+    m = re.match(r'(\d+)-(\d+)\.pcd$', os.path.basename(filepath))
+    if m:
+        return int(m.group(1)) * 10**9 + int(m.group(2))
+    return filepath
+
+
 class LidarDataset(Dataset):
     def __init__(self, pcd_folder, config):
-        self.pcd_files = sorted(glob.glob(os.path.join(pcd_folder, "*.pcd")))
+        all_files = sorted(glob.glob(os.path.join(pcd_folder, "*.pcd")), key=_pcd_sort_key)
+        start = config.get('pcd_start_idx', 0)
+        end = config.get('pcd_end_idx', None)
+        self.pcd_files = all_files[start:end]
         self.config = config
+        print(f"LidarDataset: {len(self.pcd_files)} files (idx {start}:{end}) from {pcd_folder}")
 
     def __len__(self):
         return len(self.pcd_files)
 
     def __getitem__(self, idx):
         pcd_filepath = self.pcd_files[idx]
+        use_intensity = self.config.get('use_intensity', False)
+        num_ranges = self.config['num_ranges']
+
         try:
-            pcd_full = o3d.io.read_point_cloud(pcd_filepath)
-            points = np.asarray(pcd_full.points)
+            if use_intensity:
+                pcd_t = o3d.t.io.read_point_cloud(pcd_filepath)  # type: ignore[attr-defined]
+                points = pcd_t.point.positions.numpy()
+                if 'intensity' in pcd_t.point:
+                    intensities = pcd_t.point['intensity'].numpy().flatten().astype(np.float32)
+                else:
+                    print(f"Warning: no intensity field in {pcd_filepath}, using zeros.")
+                    intensities = np.zeros(len(points), dtype=np.float32)
+            else:
+                pcd_full = o3d.io.read_point_cloud(pcd_filepath)
+                points = np.asarray(pcd_full.points)
+                intensities = None
         except Exception as e:
             print(f"Error reading PCD file {pcd_filepath}: {e}. Returning zeros.")
-            return torch.zeros(self.config['num_ranges'], dtype=torch.float32)
+            return torch.zeros(num_ranges, dtype=torch.float32)
 
-        # Use the shared preprocessing function
-        ranges = get_ranges_from_points(points, self.config)
+        ranges, intensity_per_sector = get_lidar_features_from_points(points, self.config, intensities)
 
-        # Normalize the ranges
-        normalized_ranges = ranges / self.config['max_lidar_range']
+        if use_intensity:
+            lo = self.config.get('min_intensity', 32.0)
+            hi = self.config.get('max_intensity', 68.0)
+            feature = (np.clip(intensity_per_sector, lo, hi) - lo) / (hi - lo)
+        else:
+            feature = ranges / self.config['max_lidar_range']
 
-        return torch.tensor(normalized_ranges, dtype=torch.float32)
+        return torch.tensor(feature, dtype=torch.float32)
 
 
 def visualize_footprint_at_timestep(pcd_file, config, show_footprint_lines=True):
@@ -400,9 +440,9 @@ if __name__ == "__main__":
     # 1. Configuration Parameters
     # training_data_name = "livox1"
     # training_pcd_folder = f"../../../../{training_data_name}/{training_data_name}_pcds"
-    training_data_name = "ground_lidar"
-    training_pcd_folder = f"{training_data_name}/{training_data_name}_pcds"
-
+    training_data_name = "recorded_data"
+    #training_pcd_folder = f"{training_data_name}/{training_data_name}_pcds"
+    training_pcd_folder = f"/media/akilasar/dcist_rrg/akila_data_hockfield/{training_data_name}/{training_data_name}_pcds"
     # Define and centralize all hyperparameters and paths
     global_config = {
         "training_data_name": training_data_name,
@@ -411,9 +451,9 @@ if __name__ == "__main__":
         "num_ranges": 72,
         "angle_increment_deg": float(360.0 / 72),
         "max_lidar_range": 25.0, # Now a filter
-        "min_lidar_range": 2.5, # Added as a filter
-        "z_threshold_upper": 0.15,
-        "z_threshold_lower": -0.1,
+        "min_lidar_range": 1, # Added as a filter
+        "z_threshold_upper": 1.4,
+        "z_threshold_lower": 0.1,
         "z_threshold_upper_2": 0,
         "z_threshold_lower_2": 0,
         "num_epochs": 100,
@@ -421,7 +461,12 @@ if __name__ == "__main__":
         "learning_rate": 0.001,
         "hdbscan_min_cluster_size": 8,
         "hdbscan_cluster_selection_epsilon": 0.0,
-        "num_samples_to_show_per_cluster": 2
+        "num_samples_to_show_per_cluster": 2,
+        "use_intensity": True,   # True → train on per-sector intensity; False → range
+        "min_intensity": 32.0,
+        "max_intensity": 68.0,
+        "pcd_start_idx": 500,       # first file index (inclusive)
+        "pcd_end_idx": 3000,      # last file index (exclusive); None = all
     }
     
     # Define all model and artifact paths based on the training data name

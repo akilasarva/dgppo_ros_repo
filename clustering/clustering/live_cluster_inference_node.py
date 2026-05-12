@@ -129,6 +129,8 @@ class LiveClusterInferenceNode(Node):
         self.publisher_ = self.create_publisher(Int16, '/predicted_cluster', 10)
         self.publisher_ranges = self.create_publisher(Float32MultiArray, '/processed_ranges', 10)
         self.override_sub = self.create_subscription(Int16, '/cluster_override', self._override_cb, 10)
+        self.filter_cfg_sub = self.create_subscription(
+            Float32MultiArray, '/lidar_filter_config', self._cb_filter_cfg, 10)
 
         self.get_logger().info("Ready for live clustering. Subscribed to '/warthog1/sensors/ouster/points' and publishing to '/predicted_cluster'")
 
@@ -218,6 +220,21 @@ class LiveClusterInferenceNode(Node):
         else:
             # self.get_logger().info(f"Classifying point as a new cluster/outlier (ID -2) with distance {min_dist:.2f}")
             return -2
+
+    def _cb_filter_cfg(self, msg: Float32MultiArray):
+        # Message layout (from visualizer): [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range, use_intensity]
+        if len(msg.data) < 6:
+            return
+        self.config['z_threshold_upper']   = float(msg.data[0])
+        self.config['z_threshold_lower']   = float(msg.data[1])
+        self.config['z_threshold_upper_2'] = float(msg.data[2])
+        self.config['z_threshold_lower_2'] = float(msg.data[3])
+        self.config['max_lidar_range']     = float(msg.data[4])
+        self.config['min_lidar_range']     = float(msg.data[5])
+        self.max_lidar_range               = float(msg.data[4])  # kept in sync for normalization
+        self.get_logger().info(
+            f"Filter updated: z=[{msg.data[1]:.2f},{msg.data[0]:.2f}]  "
+            f"r=[{msg.data[5]:.2f},{msg.data[4]:.2f}]")
 
     def _override_cb(self, msg: Int16):
         if msg.data == -99:

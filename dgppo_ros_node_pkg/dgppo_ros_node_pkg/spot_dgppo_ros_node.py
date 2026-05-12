@@ -45,6 +45,7 @@ class DGPPOROSNode(Node):
         self.declare_parameter('debug_mode', False)
         self.declare_parameter('current_cluster_id', 1)
         self.declare_parameter('angular_offset_deg', 0.0)
+        self.declare_parameter('dry_run', False)  # if True: full pipeline runs but NO motor commands sent
         self.num_clusters = 4
         self.dt = 1.0/30
         self.twod_area_size = 1.5
@@ -130,6 +131,8 @@ class DGPPOROSNode(Node):
         self.origin_x = 0.0
         self.origin_y = 0.0
 
+        self.spot_yaw_pub = self.create_publisher(Float32MultiArray, '/dgppo_spot_yaw', 10)
+
         self.timer = self.create_timer(0.1, self.control_loop)
 
         self.get_logger().info("DGPPO ROS Node fully initialized and ready.")
@@ -174,8 +177,10 @@ class DGPPOROSNode(Node):
 
         pos = Point(tform_body_in_vision.x, tform_body_in_vision.y)
         vel = Point(kinematic_state.velocity_of_body_in_vision.linear.x, kinematic_state.velocity_of_body_in_vision.linear.y)
+        # .angle = body yaw (radians) in vision frame — valid even when stationary
+        yaw = tform_body_in_vision.angle
 
-        return pos, vel
+        return pos, vel, yaw
 
     def _get_model_step(self, model_dir):
         model_path = os.path.join(model_dir, "models")
@@ -247,7 +252,8 @@ class DGPPOROSNode(Node):
 
         if self.current_plan_step_index >= len(self.plan_sequence):
             self.get_logger().info("High-level plan is complete. Stopping control loop.")
-            self.command_client.robot_command(command=RobotCommandBuilder.stop_command())
+            if not self.get_parameter('dry_run').get_parameter_value().bool_value:
+                self.command_client.robot_command(command=RobotCommandBuilder.stop_command())
             self.timer.cancel()
             return
 
@@ -284,7 +290,10 @@ class DGPPOROSNode(Node):
         old_scaled_ranges_np = np.array(self.latest_ranges_msg.data, dtype=np.float32) / self.scale_2d_3d
         scaled_ranges_np = old_scaled_ranges_np[::-1]
         # Update agent state from real Spot odometry
-        pos, vel = self._get_spot_state()
+        pos, vel, yaw = self._get_spot_state()
+        yaw_msg = Float32MultiArray()
+        yaw_msg.data = [yaw]
+        self.spot_yaw_pub.publish(yaw_msg)
         sim_pos_x = -pos.y      # Spot Y (left)  → Sim X
         sim_pos_y = pos.x       # Spot X (front) → Sim Y
         sim_vel_x = -vel.y      # Spot Y-vel → Sim X-vel
@@ -328,11 +337,14 @@ class DGPPOROSNode(Node):
         v_x_target = float(np.clip(float(new_movement_targets[3]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
         v_y_target = float(np.clip(-float(new_movement_targets[2]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
 
+        dry_run = self.get_parameter('dry_run').get_parameter_value().bool_value
         velocity_command = RobotCommandBuilder.synchro_velocity_command(v_x=v_x_target, v_y=v_y_target, v_rot=0.0)
-        self.command_client.robot_command(command=velocity_command, end_time_secs=time.time() + 0.5)
-
-        self.get_logger().info(f"Action: {action}")
-        self.get_logger().info(f"Vel X: {v_x_target}, Vel Y: {v_y_target}")
+        if dry_run:
+            self.get_logger().info(f"[DRY RUN] Action: {action}  Vel X: {v_x_target:.3f}  Vel Y: {v_y_target:.3f}  (no command sent)")
+        else:
+            self.command_client.robot_command(command=velocity_command, end_time_secs=time.time() + 0.5)
+            self.get_logger().info(f"Action: {action}")
+            self.get_logger().info(f"Vel X: {v_x_target}, Vel Y: {v_y_target}")
 
     def agent_step_euler(self, agent_states: AgentState, action: Action) -> AgentState:
         """Velocity control: action in [-1,1] is directly the velocity command (scaled to ±0.5)."""
