@@ -49,7 +49,7 @@ class DGPPOROSNode(Node):
         self.dt = 1.0/30
         self.twod_area_size = 1.5
 
-        model_dir = "PLACEHOLDER_TERRAIN_BENT_BRIDGE_MODEL_DIR"  # TODO: set before running
+        model_dir = "dgppo/logs/LidarTarget/dgppo/terrain_bent_bridge"
         config_path = os.path.join(model_dir, "config.yaml")
         params_path = os.path.join(model_dir, "models")
 
@@ -63,7 +63,7 @@ class DGPPOROSNode(Node):
         self.get_logger().info(f"Loaded config: {config}")
 
         # Physical LiDAR bins from /processed_ranges — independent of training n_rays
-        self.n_rays_phys = 32  # TODO: verify Spot LiDAR bin count
+        self.n_rays_phys = 72  # TODO: verify Spot LiDAR bin count
         # Merge class defaults so all keys (including n_rays=32) are present,
         # then apply specific overrides.
         merged_params = {**LidarTarget.PARAMS, **env_kwargs.get('params', {})}
@@ -127,8 +127,8 @@ class DGPPOROSNode(Node):
         )
 
         self.scale_2d_3d = 11
-        self.origin_x = TODO
-        self.origin_y = TODO
+        self.origin_x = 0.0
+        self.origin_y = 0.0
 
         self.timer = self.create_timer(0.1, self.control_loop)
 
@@ -141,10 +141,10 @@ class DGPPOROSNode(Node):
         self.get_logger().info("Initializing the Spot robot.")
         self.sdk = bosdyn.client.create_standard_sdk("understanding-spot")
         self.robot = self.sdk.create_robot("10.0.0.3")
-        self.robot.authenticate(username="TODO", password="TODO")
+        self.robot.authenticate(username="user", password="pass")
         self.robot.time_sync.wait_for_sync()
 
-        self.state_client = self.robot.ensure("robot-state")
+        self.state_client = self.robot.ensure_client("robot-state")
         self.lease_client = self.robot.ensure_client("lease")
         self.command_client = self.robot.ensure_client(RobotCommandClient.default_service_name)
 
@@ -436,6 +436,7 @@ def main(args=None):
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
+    node.lease_keep_alive.shutdown()
     node.destroy_node()
     rclpy.shutdown()
 
