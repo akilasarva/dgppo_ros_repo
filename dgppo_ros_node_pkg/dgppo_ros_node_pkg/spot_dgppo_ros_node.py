@@ -281,8 +281,8 @@ class DGPPOROSNode(Node):
         if self.current_plan_step_index >= len(self.plan_sequence):
             return
 
-        scaled_ranges_np = np.array(self.latest_ranges_msg.data, dtype=np.float32) / self.scale_2d_3d
-
+        old_scaled_ranges_np = np.array(self.latest_ranges_msg.data, dtype=np.float32) / self.scale_2d_3d
+        scaled_ranges_np = old_scaled_ranges_np[::-1]
         # Update agent state from real Spot odometry
         pos, vel = self._get_spot_state()
         sim_pos_x = -pos.y      # Spot Y (left)  → Sim X
@@ -324,7 +324,7 @@ class DGPPOROSNode(Node):
         # new_movement_targets[2:4] = velocity in sim space (vel = action * 0.5)
         # Reverse sim→Spot axis mapping: v_spot_x = sim_vel_y, v_spot_y = -sim_vel_x
         # Clamp to Spot's safe walking speed (SDK hard limit is 2.0 m/s)
-        SPOT_MAX_VEL = 1.0  # m/s — conservative safe limit
+        SPOT_MAX_VEL = 0.5  # m/s — conservative safe limit
         v_x_target = float(np.clip(float(new_movement_targets[3]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
         v_y_target = float(np.clip(-float(new_movement_targets[2]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
 
@@ -371,6 +371,8 @@ class DGPPOROSNode(Node):
         agent_pos_2d = np.array(agent_state_np[0, :2])
 
         # ── 1. Obstacle hits: resample n_rays_phys bins → n_rays (32) training beams ──
+        # LiDAR is mounted upside-down: sweep direction is reversed (CW instead of CCW).
+        # Reversing the ranges array re-aligns bins to their expected CCW angles.
         angles_phys = np.linspace(0, 2 * np.pi, self.n_rays_phys, endpoint=False)
         angles_beam = np.linspace(-np.pi, np.pi - 2 * np.pi / n_rays, n_rays)
         ranges_res  = np.interp(np.mod(angles_beam, 2 * np.pi), angles_phys, scaled_ranges)

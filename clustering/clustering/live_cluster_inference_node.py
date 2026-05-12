@@ -75,17 +75,18 @@ class LiveClusterInferenceNode(Node):
         self.embedding_size = 16
         self.num_ranges = 72
         self.max_lidar_range = 8
-        self.min_lidar_range = 0.1
+        self.min_lidar_range = 0.5
         self.angle_increment_deg = float(360.0 / self.num_ranges)
         
         # Multiple altitude slices to match training data preprocessing
-        self.z_threshold_upper = 0.75
-        self.z_threshold_lower = 0.3
+        self.z_threshold_upper = 1.26
+        self.z_threshold_lower = 0.56
         self.z_threshold_upper_2 = 0
         self.z_threshold_lower_2 = 0
         
         self.smoothing_window_size = 10 # Adjust this value as needed
         self.prediction_buffer = []
+        self.override_label = None
 
         # Anomaly detection threshold (tune this!)
         # Set this value to the 95th percentile from your training script's noise_distance_distribution.png
@@ -127,6 +128,7 @@ class LiveClusterInferenceNode(Node):
         )
         self.publisher_ = self.create_publisher(Int16, '/predicted_cluster', 10)
         self.publisher_ranges = self.create_publisher(Float32MultiArray, '/processed_ranges', 10)
+        self.override_sub = self.create_subscription(Int16, '/cluster_override', self._override_cb, 10)
 
         self.get_logger().info("Ready for live clustering. Subscribed to '/warthog1/sensors/ouster/points' and publishing to '/predicted_cluster'")
 
@@ -217,6 +219,14 @@ class LiveClusterInferenceNode(Node):
             # self.get_logger().info(f"Classifying point as a new cluster/outlier (ID -2) with distance {min_dist:.2f}")
             return -2
 
+    def _override_cb(self, msg: Int16):
+        if msg.data == -99:
+            self.override_label = None
+            self.get_logger().info("Cluster override cleared.")
+        else:
+            self.override_label = msg.data
+            self.get_logger().info(f"Cluster override set to {msg.data}.")
+
     def pointcloud_callback(self, msg: PointCloud2):
         """Callback for new PointCloud2 messages. Processes the data and performs inference."""
         # --- REMOVED: Performance-intensive logging ---
@@ -263,12 +273,10 @@ class LiveClusterInferenceNode(Node):
         predicted_label, _ = hdbscan.approximate_predict(self.cluster_model, scaled_embedding)
         
         final_label = self.reassign_labels(int(predicted_label[0]), scaled_embedding[0])
-        
         smoothed_label = self._get_smoothed_label(int(final_label))
-        
-        # Publish the smoothed label
+
         label_msg = Int16()
-        label_msg.data = smoothed_label
+        label_msg.data = self.override_label if self.override_label is not None else smoothed_label
         self.publisher_.publish(label_msg)
 
         # --- REMOVED: Performance-intensive logging ---
