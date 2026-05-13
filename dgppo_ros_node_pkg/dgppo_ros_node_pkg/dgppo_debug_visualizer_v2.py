@@ -652,11 +652,12 @@ input.r{accent-color:var(--lidar)}
 .mbtn{padding:3px 10px;font-size:10px;border:1px solid var(--grid);
       background:var(--bg);color:var(--dim);cursor:pointer;border-radius:3px;font-family:monospace}
 .mbtn.on{border-color:var(--topk);color:var(--topk);background:#1a0800}
-#elev-wrap{width:190px;background:var(--panel);border-left:1px solid var(--grid);
-           display:flex;flex-direction:column;align-items:center;padding:6px 4px}
-#elev-title{font-size:9px;color:var(--dim);text-align:center;margin-top:4px;
-            letter-spacing:.04em;text-transform:uppercase}
+#elev-wrap{width:260px;background:var(--panel);border-left:1px solid var(--grid);
+           display:flex;flex-direction:column;padding:4px}
+#three-wrap{flex:1;width:100%;min-height:0;overflow:hidden}
 </style>
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
 </head>
 <body>
 <header>DGPPO Policy Debugger v2
@@ -666,8 +667,7 @@ input.r{accent-color:var(--lidar)}
 <main>
   <div id="cw"><canvas id="cv"></canvas></div>
   <div id="elev-wrap">
-    <canvas id="elev-cv"></canvas>
-    <div id="elev-title">Point Cloud Elevation<br>— range vs Z height —</div>
+    <div id="three-wrap"></div>
   </div>
   <div id="info">
     <div class="row"><span class="k">TERRAIN</span><span class="v" id="i-ter">—</span></div>
@@ -900,71 +900,82 @@ function draw(d){
   ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,5,0,2*Math.PI);ctx.fill();
 }
 
-function drawElev(d){
-  const ec=document.getElementById('elev-cv');
-  if(!ec)return;
-  const W=ec.width,H=ec.height,pad=22;
-  const e2=ec.getContext('2d');
+/* Three.js 3D point cloud — robot (x,y,z) → Three.js (x, z, -y) so Z height = Three Y */
+let _t3={inited:false,renderer:null,scene:null,camera:null,controls:null,
+         ptsMesh:null,sliceMesh:null,planeLo:null,planeHi:null};
+
+function initThree(){
+  const wrap=document.getElementById('three-wrap');
+  if(!wrap||_t3.inited)return;
+  _t3.inited=true;
+  const W=wrap.clientWidth||250, H=wrap.clientHeight||400;
+  _t3.scene=new THREE.Scene();
+  _t3.scene.background=new THREE.Color(0x161b22);
+  _t3.camera=new THREE.PerspectiveCamera(50,W/H,0.05,200);
+  _t3.camera.position.set(5,4,5);
+  _t3.renderer=new THREE.WebGLRenderer({antialias:true});
+  _t3.renderer.setSize(W,H);
+  _t3.renderer.setPixelRatio(Math.min(window.devicePixelRatio,2));
+  wrap.appendChild(_t3.renderer.domElement);
+  _t3.controls=new THREE.OrbitControls(_t3.camera,_t3.renderer.domElement);
+  _t3.controls.enableDamping=true; _t3.controls.dampingFactor=0.08;
+  _t3.scene.add(new THREE.GridHelper(16,8,0x30363d,0x222830));
+  // All-points cloud (dim)
+  _t3.ptsMesh=new THREE.Points(
+    new THREE.BufferGeometry(),
+    new THREE.PointsMaterial({size:0.06,color:0x3a3a5a,transparent:true,opacity:0.7})
+  );
+  _t3.scene.add(_t3.ptsMesh);
+  // In-slice cloud (bright)
+  _t3.sliceMesh=new THREE.Points(
+    new THREE.BufferGeometry(),
+    new THREE.PointsMaterial({size:0.10,color:0xffcc00})
+  );
+  _t3.scene.add(_t3.sliceMesh);
+  // Slice planes
+  const plGeo=new THREE.PlaneGeometry(16,16);
+  const plMat=()=>new THREE.MeshBasicMaterial({color:0xffcc00,transparent:true,opacity:0.07,side:THREE.DoubleSide});
+  _t3.planeLo=new THREE.Mesh(plGeo.clone(),plMat());
+  _t3.planeHi=new THREE.Mesh(plGeo.clone(),plMat());
+  _t3.planeLo.rotation.x=_t3.planeHi.rotation.x=-Math.PI/2;
+  _t3.scene.add(_t3.planeLo); _t3.scene.add(_t3.planeHi);
+  (function animate(){requestAnimationFrame(animate);_t3.controls.update();_t3.renderer.render(_t3.scene,_t3.camera);})();
+}
+
+function updateThree(d){
+  if(!_t3.inited)initThree();
+  if(!_t3.renderer)return;
   const cfg=d.filter_cfg||{};
-  const maxR=cfg.max_range||8;
   const zLo=cfg.z_lower??-1.26, zHi=cfg.z_upper??-0.56;
-
-  // Z axis range: span slice band plus margin
-  const zSpan=Math.max(Math.abs(zHi-zLo),0.5);
-  const zMin=zLo-zSpan*0.8, zMax=zHi+zSpan*0.8;
-
-  function toEc(range,z){
-    const ex=pad+(range/maxR)*(W-2*pad);
-    const ey=H-pad-((z-zMin)/(zMax-zMin))*(H-2*pad);
-    return[ex,ey];
+  const sliceHex=useIntensity?0xff44cc:0xffcc00;
+  if(_t3.planeLo){_t3.planeLo.position.y=zLo;_t3.planeLo.material.color.setHex(sliceHex);}
+  if(_t3.planeHi){_t3.planeHi.position.y=zHi;_t3.planeHi.material.color.setHex(sliceHex);}
+  if(_t3.sliceMesh)_t3.sliceMesh.material.color.setHex(sliceHex);
+  if(!d.cloud_3d||!d.cloud_3d.length)return;
+  const pts=d.cloud_3d;
+  // All points
+  const posA=new Float32Array(pts.length*3);
+  for(let i=0;i<pts.length;i++){posA[i*3]=pts[i][0];posA[i*3+1]=pts[i][2];posA[i*3+2]=-pts[i][1];}
+  _t3.ptsMesh.geometry.setAttribute('position',new THREE.BufferAttribute(posA,3));
+  _t3.ptsMesh.geometry.computeBoundingSphere();
+  // In-slice points
+  const sl=pts.filter(p=>p[2]>=zLo&&p[2]<=zHi);
+  if(sl.length){
+    const posS=new Float32Array(sl.length*3);
+    for(let i=0;i<sl.length;i++){posS[i*3]=sl[i][0];posS[i*3+1]=sl[i][2];posS[i*3+2]=-sl[i][1];}
+    _t3.sliceMesh.geometry.setAttribute('position',new THREE.BufferAttribute(posS,3));
+    _t3.sliceMesh.geometry.computeBoundingSphere();
   }
+}
 
-  // Background
-  e2.fillStyle='#161b22';e2.fillRect(0,0,W,H);
-
-  // Z-slice band fill
-  const[,y1]=toEc(0,zHi);const[,y2]=toEc(0,zLo);
-  const slCol=useIntensity?C.sliceI:C.sliceZ;
-  e2.fillStyle=useIntensity?'rgba(255,68,204,0.12)':'rgba(255,204,0,0.12)';
-  e2.fillRect(pad,y1,W-2*pad,y2-y1);
-
-  // Z-slice boundary lines
-  e2.strokeStyle=slCol;e2.lineWidth=1.5;e2.setLineDash([4,3]);
-  [zLo,zHi].forEach(z=>{
-    const[,ey]=toEc(0,z);
-    e2.beginPath();e2.moveTo(pad,ey);e2.lineTo(W-pad,ey);e2.stroke();
-  });
-  e2.setLineDash([]);
-
-  // Zero Z line
-  if(zMin<0&&zMax>0){
-    const[,ey0]=toEc(0,0);
-    e2.strokeStyle=C.grid;e2.lineWidth=0.7;
-    e2.beginPath();e2.moveTo(pad,ey0);e2.lineTo(W-pad,ey0);e2.stroke();
-  }
-
-  // Cloud points
-  if(d.cloud_elev&&d.cloud_elev.length){
-    d.cloud_elev.forEach(([range,z])=>{
-      const inBand=z>=zLo&&z<=zHi;
-      const[ex,ey]=toEc(range,z);
-      e2.fillStyle=inBand?slCol:'rgba(42,42,58,0.8)';
-      e2.beginPath();e2.arc(ex,ey,inBand?2.5:1.2,0,2*Math.PI);e2.fill();
-    });
-  }
-
-  // Axes labels
-  e2.fillStyle=C.dim;e2.font='9px monospace';
-  e2.textAlign='center';
-  e2.fillText('0',pad,H-4);e2.fillText(maxR.toFixed(0)+'m',W-pad,H-4);
-  e2.textAlign='right';
-  e2.fillText(zMax.toFixed(1),pad-2,(pad+6));
-  e2.fillText(zMin.toFixed(1),pad-2,H-pad+4);
-  // Slice labels
-  e2.fillStyle=slCol;e2.textAlign='left';
-  const[,ly1]=toEc(0,zHi);const[,ly2]=toEc(0,zLo);
-  e2.fillText('z='+zHi.toFixed(2),W-pad-2,ly1-3);
-  e2.fillText('z='+zLo.toFixed(2),W-pad-2,ly2+10);
+function resizeThree(){
+  const wrap=document.getElementById('three-wrap');
+  if(!wrap||!_t3.renderer||!_t3.camera)return;
+  const W=wrap.clientWidth, H=wrap.clientHeight;
+  if(W<1||H<1)return;
+  _t3.camera.aspect=W/H;
+  _t3.camera.updateProjectionMatrix();
+  _t3.renderer.setSize(W,H);
 }
 
 function $t(id,v,c){const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;}
@@ -1005,7 +1016,7 @@ async function loop(){
   while(true){
     try{
       const r=await fetch('/api/state');
-      if(r.ok){const d=await r.json();lastData=d;draw(d);panel(d);drawElev(d);
+      if(r.ok){const d=await r.json();lastData=d;draw(d);panel(d);updateThree(d);
                badge.textContent='live';badge.className='live';}
     }catch(e){badge.textContent='disconnected';badge.className='';}
     await new Promise(r=>setTimeout(r,80));
@@ -1015,13 +1026,7 @@ function resize(){
   const w=document.getElementById('cw');
   const s=Math.min(w.clientWidth-12,w.clientHeight-12,700);
   cv.width=s;cv.height=s;if(lastData)draw(lastData);
-  const ew=document.getElementById('elev-wrap');
-  if(ew){
-    const ec=document.getElementById('elev-cv');
-    ec.width=ew.clientWidth-8;
-    ec.height=Math.min(ew.clientHeight-32,500);
-    if(lastData)drawElev(lastData);
-  }
+  resizeThree();
 }
 window.addEventListener('resize',resize);resize();loop();
 </script>
@@ -1047,7 +1052,7 @@ def run_web(state: DebugState, port=WEB_PORT):
         a0, a1 = float(snap['action'][0]), float(snap['action'][1])
         current_step, bearing_rad = _bearing_for_step(snap)
 
-        cloud_all, cloud_slice, cloud_elev = [], [], []
+        cloud_all, cloud_slice, cloud_3d = [], [], []
         rc = snap.get('raw_cloud')
         if rc is not None and len(rc):
             # _apply_slice_filter returns x already negated for upside-down correction;
@@ -1059,10 +1064,9 @@ def run_web(state: DebugState, port=WEB_PORT):
             if slice_xy is not None and len(slice_xy):
                 stride = max(1, len(slice_xy) // 300)
                 cloud_slice = slice_xy[::stride].tolist()
-            stride_e   = max(1, len(rc) // 400)
-            pts_e      = rc[::stride_e]
-            ranges_e   = np.hypot(pts_e[:, 0], pts_e[:, 1])
-            cloud_elev = np.column_stack([ranges_e, pts_e[:, 2]]).tolist()
+            stride_3d  = max(1, len(rc) // 400)
+            pts_3d     = rc[::stride_3d]
+            cloud_3d   = pts_3d[:, :3].tolist()
 
         return jsonify(dict(
             action           = [a0, a1],
@@ -1077,7 +1081,7 @@ def run_web(state: DebugState, port=WEB_PORT):
                                if snap['processed_ranges'] is not None else None,
             cloud_all        = cloud_all,
             cloud_slice      = cloud_slice,
-            cloud_elev       = cloud_elev,
+            cloud_3d         = cloud_3d,
             filter_cfg       = snap['filter_cfg'],
         ))
 
