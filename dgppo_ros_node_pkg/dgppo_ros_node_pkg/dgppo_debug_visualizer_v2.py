@@ -1023,6 +1023,34 @@ function draw(d){
   }
   // Robot origin dot
   ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,5,0,2*Math.PI);ctx.fill();
+
+  // Legend — top-left corner
+  const slCol2=useIntensity?C.sliceI:C.sliceZ;
+  const slLbl=useIntensity?'Intensity slice':'Z slice';
+  const items=[
+    [C.cloudAll,       'Raw cloud (all)'],
+    [slCol2,           slLbl],
+    [C.lidar,          'Lidar beams'],
+    [C.topk,           'Top-K inputs'],
+    [C.bear,           'Plan bearing'],
+    [C.head,           'Spot heading'],
+    [C.act,            'Action'],
+  ];
+  const lx=8,ly=22,lh=16,dotR=5;
+  ctx.save();
+  ctx.globalAlpha=0.82;
+  ctx.fillStyle=C.bg;
+  ctx.fillRect(lx-4,ly-14,130,items.length*lh+6);
+  ctx.globalAlpha=1;
+  ctx.font='10px monospace';ctx.textAlign='left';
+  items.forEach(([col,lbl],i)=>{
+    const y=ly+i*lh;
+    ctx.fillStyle=col;
+    ctx.beginPath();ctx.arc(lx+dotR,y-3,dotR,0,2*Math.PI);ctx.fill();
+    ctx.fillStyle=C.dim;
+    ctx.fillText(lbl,lx+dotR*2+5,y);
+  });
+  ctx.restore();
 }
 
 /* Three.js 3D point cloud — robot (x,y,z) → Three.js (x, z, -y) so Z height = Three Y */
