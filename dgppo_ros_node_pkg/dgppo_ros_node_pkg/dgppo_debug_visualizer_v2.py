@@ -90,6 +90,8 @@ C_CLOUD_SLICE_I = '#ff44cc'    # magenta: intensity slice (visual only)
 
 # ── Filter config ─────────────────────────────────────────────────────────────
 
+_CFG_SAVE_PATH = os.path.join(os.path.dirname(__file__), 'filter_config.json')
+
 class FilterConfig:
     def __init__(self):
         self._lock     = threading.Lock()
@@ -103,6 +105,27 @@ class FilterConfig:
         # Intensity bounds — visualizer slice only; clustering always uses Z
         self.int_lower = 0.0
         self.int_upper = 500.0
+        self._load()
+
+    def _load(self):
+        try:
+            with open(_CFG_SAVE_PATH) as f:
+                d = json.load(f)
+            for k, v in d.items():
+                if hasattr(self, k) and not k.startswith('_'):
+                    setattr(self, k, v)
+            print(f"[CFG] Loaded filter config from {_CFG_SAVE_PATH}")
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            print(f"[CFG] Could not load filter config: {e}")
+
+    def _save(self):
+        try:
+            with open(_CFG_SAVE_PATH, 'w') as f:
+                json.dump(self.get(), f, indent=2)
+        except Exception as e:
+            print(f"[CFG] Could not save filter config: {e}")
 
     def get(self):
         with self._lock:
@@ -119,6 +142,7 @@ class FilterConfig:
             for k, v in kw.items():
                 if hasattr(self, k):
                     setattr(self, k, v)
+        self._save()
 
 
 # ── Shared state ──────────────────────────────────────────────────────────────
@@ -1129,7 +1153,17 @@ function resize(){
   cv.width=s;cv.height=s;if(lastData)draw(lastData);
   resizeThree();
 }
-window.addEventListener('resize',resize);resize();loop();
+function initSliders(cfg){
+  if(!cfg)return;
+  const map={zlo:'z_lower',zhi:'z_upper',ilo:'int_lower',ihi:'int_upper',rmin:'min_range',rmax:'max_range'};
+  for(const[id,key] of Object.entries(map)){
+    const el=document.getElementById('sl-'+id);
+    const sp=document.getElementById('v-'+id);
+    if(el&&cfg[key]!=null){el.value=cfg[key];sp.textContent=parseFloat(cfg[key]).toFixed(2);}
+  }
+}
+window.addEventListener('resize',resize);
+fetch('/api/state').then(r=>r.json()).then(d=>{initSliders(d.filter_cfg);resize();loop();}).catch(()=>{resize();loop();});
 </script>
 </body>
 </html>"""
