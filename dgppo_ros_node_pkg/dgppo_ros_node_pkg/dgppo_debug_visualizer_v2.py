@@ -957,7 +957,7 @@ def run_web(state: DebugState, port=WEB_PORT):
         a0, a1 = float(snap['action'][0]), float(snap['action'][1])
         current_step, bearing_rad = _bearing_for_step(snap)
 
-        cloud_all, cloud_slice = [], []
+        cloud_all, cloud_slice, cloud_elev = [], [], []
         rc = snap.get('raw_cloud')
         if rc is not None and len(rc):
             # _apply_slice_filter returns x already negated for upside-down correction;
@@ -969,6 +969,10 @@ def run_web(state: DebugState, port=WEB_PORT):
             if slice_xy is not None and len(slice_xy):
                 stride = max(1, len(slice_xy) // 300)
                 cloud_slice = slice_xy[::stride].tolist()
+            stride_e   = max(1, len(rc) // 400)
+            pts_e      = rc[::stride_e]
+            ranges_e   = np.hypot(pts_e[:, 0], pts_e[:, 1])
+            cloud_elev = np.column_stack([ranges_e, pts_e[:, 2]]).tolist()
 
         return jsonify(dict(
             action           = [a0, a1],
@@ -983,6 +987,7 @@ def run_web(state: DebugState, port=WEB_PORT):
                                if snap['processed_ranges'] is not None else None,
             cloud_all        = cloud_all,
             cloud_slice      = cloud_slice,
+            cloud_elev       = cloud_elev,
             filter_cfg       = snap['filter_cfg'],
         ))
 
