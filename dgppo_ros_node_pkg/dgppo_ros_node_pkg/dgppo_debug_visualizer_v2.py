@@ -18,7 +18,7 @@ Z-height mode  → yellow slice; same z-band sent to clustering node → affects
 Intensity mode → magenta slice; visual-only; clustering node still uses Z-height
 """
 
-import sys, os, json, math, threading, argparse
+import sys, os, json, math, threading, argparse, time
 from collections import deque
 
 import numpy as np
@@ -35,10 +35,21 @@ try:
 except Exception:
     _HAS_3D = False
 
+try:
+    import cv2
+    from cv_bridge import CvBridge as _CvBridge
+    _bridge = _CvBridge()
+    _HAS_CV = True
+except ImportError:
+    _HAS_CV = False
+
+_CAM_W = 480   # max JPEG width for streaming
+_CAM_Q = 55    # JPEG quality
+
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Int16, Int32, Float32MultiArray
-from sensor_msgs.msg import PointCloud2
+from sensor_msgs.msg import PointCloud2, Image
 from sensor_msgs_py.point_cloud2 import read_points
 from rclpy.qos import qos_profile_sensor_data
 
@@ -126,6 +137,8 @@ class DebugState:
         self.processed_ranges = None
         self.raw_cloud       = None   # (N,4): x,y,z,intensity from lidar
         self.filter_cfg      = filter_cfg
+        self.raw_frame_jpg   = None   # bytes: JPEG of raw ZED image
+        self.hsv_frame_jpg   = None   # bytes: JPEG of HSV-segmented image
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -149,6 +162,18 @@ class DebugState:
 
     def set_raw_cloud(self, pts):
         with self._lock: self.raw_cloud = pts
+
+    def set_raw_frame(self, jpg):
+        with self._lock: self.raw_frame_jpg = jpg
+
+    def set_hsv_frame(self, jpg):
+        with self._lock: self.hsv_frame_jpg = jpg
+
+    def get_raw_frame(self):
+        with self._lock: return self.raw_frame_jpg
+
+    def get_hsv_frame(self):
+        with self._lock: return self.hsv_frame_jpg
 
     def snapshot(self):
         with self._lock:
@@ -183,6 +208,8 @@ class DebugSubscriber(Node):
         sub(Float32MultiArray, '/processed_ranges',  self._cb_ranges,   10)
         sub(Float32MultiArray, '/dgppo_spot_yaw',    self._cb_spot_yaw, 10)
         sub(PointCloud2,       '/livox/lidar',       self._cb_cloud,    qos_profile_sensor_data)
+        sub(Image, '/zed/zed_node/rgb/color/rect/image', self._cb_raw_img, qos_profile_sensor_data)
+        sub(Image, '/segmentor_image',                   self._cb_hsv_img, 10)
         self._cfg_pub = self.create_publisher(Float32MultiArray, '/lidar_filter_config', 10)
         self.create_timer(0.2, self._pub_cfg)
 
@@ -221,6 +248,12 @@ class DebugSubscriber(Node):
         except Exception:
             pass
 
+    def _cb_raw_img(self, msg):
+        _encode_frame(msg, self.state.set_raw_frame)
+
+    def _cb_hsv_img(self, msg):
+        _encode_frame(msg, self.state.set_hsv_frame)
+
     def _pub_cfg(self):
         cfg = self.state.filter_cfg.get()
         m = Float32MultiArray()
@@ -233,6 +266,22 @@ class DebugSubscriber(Node):
             float(cfg['use_intensity']),
         ]
         self._cfg_pub.publish(m)
+
+
+def _encode_frame(msg: Image, setter):
+    if not _HAS_CV:
+        return
+    try:
+        img = _bridge.imgmsg_to_cv2(msg, 'bgr8')
+        h, w = img.shape[:2]
+        if w > _CAM_W:
+            img = cv2.resize(img, (_CAM_W, int(h * _CAM_W / w)),
+                             interpolation=cv2.INTER_AREA)
+        ok, buf = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, _CAM_Q])
+        if ok:
+            setter(buf.tobytes())
+    except Exception:
+        pass
 
 
 def _ros_thread(state: DebugState):
@@ -666,6 +715,11 @@ input.r{accent-color:var(--lidar)}
 #elev-wrap{width:260px;background:var(--panel);border-left:1px solid var(--grid);
            display:flex;flex-direction:column;padding:4px}
 #three-wrap{flex:1;width:100%;min-height:0;overflow:hidden}
+#cameras{display:flex;gap:8px;background:var(--panel);border-top:1px solid var(--grid);
+         padding:4px 10px;flex-shrink:0;overflow:hidden}
+.cam-wrap{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.cam-lbl{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+.cam-wrap img{width:100%;height:170px;object-fit:contain;border:1px solid var(--grid);background:#000}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
@@ -711,6 +765,16 @@ input.r{accent-color:var(--lidar)}
     <div class="row"><span class="k">Range</span><span class="v" id="i-rg">—</span></div>
   </div>
 </main>
+<div id="cameras">
+  <div class="cam-wrap">
+    <div class="cam-lbl">RAW ZED</div>
+    <img src="/stream/raw" onerror="this.style.opacity='0.3'">
+  </div>
+  <div class="cam-wrap">
+    <div class="cam-lbl">HSV FILTER</div>
+    <img src="/stream/hsv" onerror="this.style.opacity='0.3'">
+  </div>
+</div>
 <div id="sliders">
   <h4>LIDAR FILTER  ·  publishes → /lidar_filter_config every 200 ms</h4>
   <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start">
@@ -1121,6 +1185,23 @@ def run_web(state: DebugState, port=WEB_PORT):
             cloud_3d         = cloud_3d,
             filter_cfg       = snap['filter_cfg'],
         ))
+
+    def _mjpeg(get_frame):
+        while True:
+            jpg = get_frame()
+            if jpg:
+                yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
+            time.sleep(0.1)
+
+    @app.route('/stream/raw')
+    def stream_raw():
+        return Response(_mjpeg(state.get_raw_frame),
+                        mimetype='multipart/x-mixed-replace; boundary=frame')
+
+    @app.route('/stream/hsv')
+    def stream_hsv():
+        return Response(_mjpeg(state.get_hsv_frame),
+                        mimetype='multipart/x-mixed-replace; boundary=frame')
 
     @app.route('/api/set_config', methods=['POST'])
     def api_set_config():
