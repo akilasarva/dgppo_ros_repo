@@ -1,0 +1,4 @@
+[submodule "dgppo_ros_node_pkg/dgppo_ros_node_pkg/dgppo"]
+	path = dgppo_ros_node_pkg/dgppo_ros_node_pkg/dgppo
+	url = git@github.com:akilasarva/modified_dgppo.git
+	branch = terrain_bent_branch
