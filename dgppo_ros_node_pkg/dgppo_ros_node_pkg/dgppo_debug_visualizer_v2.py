@@ -629,6 +629,13 @@ _HTML = r"""<!DOCTYPE html>
       --lidar:#00cc44;--topk:#ff6600;--act:#00cfff;--bear:#ffd700;
       --head:#cc44ff;--warn:#ff4444;--circ:#58a6ff;
       --sliceZ:#ffcc00;--sliceI:#ff44cc;}
+body.light{--bg:#f0f4f8;--panel:#e8ecf2;--grid:#b0bac6;--txt:#0d1117;--dim:#4a5568;
+           --lidar:#006e1f;--topk:#cc3d00;--act:#0050bb;--bear:#8a6000;
+           --head:#6e0099;--warn:#bb0000;--circ:#1a4db5;
+           --sliceZ:#996600;--sliceI:#990066;}
+body.light #badge{background:#dde3ec;color:#4a5568}
+body.light #badge.live{background:#c6efce;color:#006e1f}
+body.light .mbtn.on{background:#fff0e0;border-color:var(--topk);color:var(--topk)}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--txt);font-family:monospace;
      display:flex;flex-direction:column;height:100vh;overflow:hidden}
@@ -667,6 +674,7 @@ input.r{accent-color:var(--lidar)}
 <header>DGPPO Policy Debugger v2
   <span id="badge">connecting…</span>
   <span style="font-size:10px;color:var(--dim)">TOP=FWD · Lidar x-flipped · Arrows 0=FWD=UP</span>
+  <button id="theme-btn" class="mbtn" onclick="toggleTheme()" style="margin-left:auto">☀ Light</button>
 </header>
 <main>
   <div id="cw"><canvas id="cv"></canvas></div>
@@ -747,12 +755,37 @@ const CN={0:'open_space',1:'approach_bridge',2:'on_bridge',3:'exit_bridge'};
 const TN={0:'Road',1:'Grass',2:'Sidewalk'};
 const TC={0:'#ffaa44',1:'#44ff88',2:'#aaaaff'};
 const RM={2:1,3:1,5:2,6:2,7:2,8:2,9:2,'-1':3,4:3,0:0,1:0};
-const C={lidar:'#00cc44',topk:'#ff6600',act:'#00cfff',bear:'#ffd700',
-         head:'#cc44ff',warn:'#ff4444',grid:'#30363d',dim:'#8b949e',
-         circ:'#58a6ff',bg:'#161b22',trail:'#2860cc',
-         cloudAll:'rgba(42,42,58,0.7)',sliceZ:'#ffcc00',sliceI:'#ff44cc'};
+const DARK={lidar:'#00cc44',topk:'#ff6600',act:'#00cfff',bear:'#ffd700',
+            head:'#cc44ff',warn:'#ff4444',grid:'#30363d',dim:'#8b949e',
+            circ:'#58a6ff',bg:'#161b22',trail:'#2860cc',
+            cloudAll:'rgba(42,42,58,0.7)',sliceZ:'#ffcc00',sliceI:'#ff44cc'};
+const LIGHT={lidar:'#006e1f',topk:'#cc3d00',act:'#0050bb',bear:'#8a6000',
+             head:'#6e0099',warn:'#bb0000',grid:'#b0bac6',dim:'#4a5568',
+             circ:'#1a4db5',bg:'#f0f4f8',trail:'#2244aa',
+             cloudAll:'rgba(160,170,185,0.7)',sliceZ:'#996600',sliceI:'#990066'};
+let C={...DARK};
 const TOP_K=8;
-let useIntensity=false, lastData=null;
+let useIntensity=false, lastData=null, lightMode=false;
+
+function toggleTheme(){
+  lightMode=!lightMode;
+  C=lightMode?{...LIGHT}:{...DARK};
+  document.body.classList.toggle('light',lightMode);
+  document.getElementById('theme-btn').textContent=lightMode?'🌙 Dark':'☀ Light';
+  if(_t3.scene){
+    _t3.scene.background=new THREE.Color(lightMode?0xf0f4f8:0x161b22);
+    _t3.scene.children.forEach(o=>{
+      if(o.isGridHelper){
+        if(Array.isArray(o.material)){
+          o.material[0].color.set(lightMode?0xb0bac6:0x30363d);
+          o.material[1].color.set(lightMode?0xb0bac6:0x222830);
+        }
+      }
+    });
+    if(_t3.ptsMesh)_t3.ptsMesh.material.color.set(lightMode?0x8899aa:0x3a3a5a);
+  }
+  if(lastData)draw(lastData);
+}
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 
 function setMode(m){
