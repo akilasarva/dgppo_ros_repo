@@ -9,8 +9,8 @@ Usage:
 
 Coordinate conventions (after corrections):
   Display: TOP = robot FORWARD, RIGHT = robot RIGHT, LEFT = robot LEFT
-  - Raw cloud x is negated (lidar upside-down; sensor +x = physical LEFT → display LEFT)
-  - Processed-range beams: x negated the same way (bin 0 = physical LEFT → LEFT on display)
+  - Raw cloud: x-flip (upside-down mount) then 90° CW rotation → (x,y) → (y_raw, x_raw)
+  - Processed-range beams: same net rotation → (r·sin θ, r·cos θ)
   - Bearing/heading arrows: angle 0 = forward = UP  (stored as raw radians, +π/2 applied at draw)
   - Action arrow: atan2(a1_fwd, a0_right); forward → UP, right → RIGHT — already correct
 
@@ -77,8 +77,8 @@ C_CLOUD_SLICE_I = '#ff44cc'    # magenta: intensity slice (visual only)
 class FilterConfig:
     def __init__(self):
         self._lock     = threading.Lock()
-        self.z_upper   = 1.26
-        self.z_lower   = 0.56
+        self.z_upper   = -0.56
+        self.z_lower   = -1.26
         self.z2_upper  = 0.0
         self.z2_lower  = 0.0
         self.max_range = 8.0
@@ -239,15 +239,15 @@ def _ros_thread(state: DebugState):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def topk_from_ranges(ranges, k=TOP_K, max_range=8.0):
-    """Return (k,2) XY of closest k bins, with x negated for upside-down lidar."""
+    """Return (k,2) XY of closest k bins, rotated 90° CW to align with robot frame."""
     n      = len(ranges)
     angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
     valid  = np.where(ranges < max_range * 0.999)[0]
     if len(valid) == 0:
         return np.empty((0, 2))
     idx = valid[np.argsort(ranges[valid])[:k]]
-    return np.column_stack([-ranges[idx] * np.cos(angles[idx]),   # x negated
-                              ranges[idx] * np.sin(angles[idx])])
+    return np.column_stack([ranges[idx] * np.sin(angles[idx]),
+                             ranges[idx] * np.cos(angles[idx])])
 
 
 def _bearing_for_step(snap):
@@ -275,15 +275,14 @@ def _apply_slice_filter(raw_cloud, cfg):
     if cfg['use_intensity']:
         band_mask = (intensity >= cfg['int_lower']) & (intensity <= cfg['int_upper'])
     else:
-        abs_z    = np.abs(z)
-        band1    = (abs_z >= cfg['z_lower'])  & (abs_z <= cfg['z_upper'])
+        band1    = (z >= cfg['z_lower'])  & (z <= cfg['z_upper'])
         band2_on = cfg['z2_upper'] > cfg['z2_lower']
-        band2    = ((abs_z >= cfg['z2_lower']) & (abs_z <= cfg['z2_upper'])
+        band2    = ((z >= cfg['z2_lower']) & (z <= cfg['z2_upper'])
                     if band2_on else np.zeros(len(z), dtype=bool))
         band_mask = band1 | band2
 
-    # Negate x to correct for upside-down lidar (sensor +x = physical LEFT)
-    xy_flipped = np.column_stack([-x, y])
+    # x-flip (upside-down mount) then 90° CW rotation: net result is (y_raw, x_raw)
+    xy_flipped = np.column_stack([y, x])
     return xy_flipped, xy_flipped[band_mask & range_mask]
 
 
@@ -344,8 +343,8 @@ def _build_figure():
         sl.valtext.set_color(C_TEXT); sl.valtext.set_fontsize(7)
         return sl
 
-    sl_zlo  = _sl(sl_axes[0], 'Z min',   -2.0,    1.0,   0.56, C_CLOUD_SLICE_Z)
-    sl_zhi  = _sl(sl_axes[1], 'Z max',   0.0,    3.0,   1.26, C_CLOUD_SLICE_Z)
+    sl_zlo  = _sl(sl_axes[0], 'Z min',   -3.0,    1.0,  -1.26, C_CLOUD_SLICE_Z)
+    sl_zhi  = _sl(sl_axes[1], 'Z max',   -3.0,    3.0,  -0.56, C_CLOUD_SLICE_Z)
     sl_ilo  = _sl(sl_axes[2], 'Int min', 0.0, 1000.0,    0.0, C_CLOUD_SLICE_I)
     sl_ihi  = _sl(sl_axes[3], 'Int max', 0.0, 1000.0,  500.0, C_CLOUD_SLICE_I)
     sl_rmin = _sl(sl_axes[4], 'R min',   0.0,    2.0,   0.50, C_LIDAR)
@@ -433,13 +432,13 @@ def run_desktop(state: DebugState):
                                              color=slice_color, zorder=2,
                                              linewidths=0, alpha=0.85))
 
-        # ── Processed-range beams (x negated for upside-down correction) ─
+        # ── Processed-range beams (90° CW rotation applied) ──────────────
         if ranges is not None and len(ranges) > 0:
             n      = len(ranges)
             angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
             valid  = ranges < max_range * 0.999
-            ex = np.where(valid, -ranges * np.cos(angles), np.nan)   # x negated
-            ey = np.where(valid,  ranges * np.sin(angles), np.nan)
+            ex = np.where(valid, ranges * np.sin(angles), np.nan)
+            ey = np.where(valid, ranges * np.cos(angles), np.nan)
 
             segs = [[[0., 0.], [float(ex[i]), float(ey[i])]] for i in range(n) if valid[i]]
             if segs:
@@ -637,11 +636,11 @@ input.r{accent-color:var(--lidar)}
     <div>
       <div class="grp" style="color:var(--sliceZ)">Z height  (→ clustering node)</div>
       <div class="sr"><label>Z min</label>
-        <input class="z" type="range" id="sl-zlo" min="0" max="3" step="0.01" value="0.56">
-        <span id="v-zlo">0.56</span></div>
+        <input class="z" type="range" id="sl-zlo" min="-3" max="1" step="0.01" value="-1.26">
+        <span id="v-zlo">-1.26</span></div>
       <div class="sr"><label>Z max</label>
-        <input class="z" type="range" id="sl-zhi" min="0" max="3" step="0.01" value="1.26">
-        <span id="v-zhi">1.26</span></div>
+        <input class="z" type="range" id="sl-zhi" min="-3" max="3" step="0.01" value="-0.56">
+        <span id="v-zhi">-0.56</span></div>
     </div>
     <div>
       <div class="grp" style="color:var(--sliceI)">Intensity  (visual only — cluster uses Z)</div>
@@ -706,10 +705,10 @@ function post(){
   el.addEventListener('input',()=>{sp.textContent=parseFloat(el.value).toFixed(2);post();});
 });
 
-/* Lidar beams: x-flip via -cos(a).  Bearing/heading arrows: +π/2 so 0=FWD=UP. */
+/* Lidar beams: 90° CW rotation applied (sin/cos swapped). Bearing/heading arrows: +π/2 so 0=FWD=UP. */
 function lidarPt(r,a,cx,cy,sc){
-  // Negate x-component (cos) to correct for upside-down lidar mounting
-  return[cx - r*Math.cos(a)*sc, cy - r*Math.sin(a)*sc];
+  // 90° CW rotation (x-flip + rotate): display x=r·sin(a), display y=r·cos(a)
+  return[cx + r*Math.sin(a)*sc, cy - r*Math.cos(a)*sc];
 }
 function polarPt(r,a,cx,cy,sc){
   // Standard polar: x positive = RIGHT, y positive = UP (canvas inverted)
@@ -762,7 +761,7 @@ function draw(d){
   ctx.textAlign='left'; ctx.fillText('RIGHT',W-24,cy+4);
   ctx.textAlign='center';
 
-  // Layer 1: raw cloud all (x pre-negated server-side, use cx+x*sc)
+  // Layer 1: raw cloud all (pre-rotated 90° CW server-side, use cx+x*sc)
   if(d.cloud_all&&d.cloud_all.length){
     ctx.fillStyle=C.cloudAll;
     d.cloud_all.forEach(([x,y])=>{
