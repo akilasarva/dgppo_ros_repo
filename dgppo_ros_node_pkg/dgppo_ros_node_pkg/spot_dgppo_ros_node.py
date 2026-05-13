@@ -192,7 +192,7 @@ class DGPPOROSNode(Node):
         return step
 
     def _load_plan_and_cluster_data(self, model_dir):
-        plan_file_path = "plans/highlevel_plan.json"
+        plan_file_path = "plans/bridge.json"
         if not os.path.exists(plan_file_path):
             self.get_logger().error(f"High level plan file not found at {plan_file_path}")
             return [], {}, {}
@@ -261,17 +261,21 @@ class DGPPOROSNode(Node):
         expected_start_cluster = current_plan_step["start"]
         expected_next_cluster = current_plan_step["next"]
 
+        missing = []
         if self.latest_ranges_msg is None:
-            self.get_logger().warning("Waiting for sensor data...")
+            missing.append('/processed_ranges  ← clustering node must be running and receiving lidar')
+        if not debug_mode and self.latest_predicted_cluster_id is None:
+            missing.append('/predicted_cluster ← clustering node must be running and receiving lidar')
+        if missing:
+            self.get_logger().warning(
+                'Waiting for topics:\n  ' + '\n  '.join(missing),
+                throttle_duration_sec=3.0)
             return
 
         if debug_mode:
             current_cluster_id = self.get_parameter('current_cluster_id').get_parameter_value().integer_value
             self.get_logger().info(f"DEBUG MODE: Using manual cluster ID {current_cluster_id}")
         else:
-            if self.latest_predicted_cluster_id is None:
-                self.get_logger().warning("Waiting for predicted cluster ID...")
-                return
             current_cluster_id = self.latest_predicted_cluster_id
             self.get_logger().info(f"Default MODE: Using predicted cluster ID {current_cluster_id}")
 

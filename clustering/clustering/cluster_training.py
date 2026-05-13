@@ -15,6 +15,8 @@ from sklearn.decomposition import PCA # Import PCA for 2D visualization
 from sklearn.manifold import TSNE
 import hdbscan
 import pickle # For saving/loading HDBSCAN model
+import io
+import struct
 from PIL import Image, ImageDraw, ImageFont # For GIF text overlay
 import time # For pausing between visualizations
 import json # For saving/loading cluster labels
@@ -337,7 +339,101 @@ def visualize_footprint_at_timestep(pcd_file, config, show_footprint_lines=True)
     return pcd_all_o3d, line_set, pcd_footprint_slice, ranges
 
 
-def display_cluster_samples(pcd_folder, filenames, cluster_id, num_samples, config):
+def _parse_pcd_timestamp_ns(filepath):
+    """Extract nanosecond timestamp from 'seconds-nanoseconds.pcd' filename."""
+    m = re.match(r'(\d+)-(\d+)\.pcd', os.path.basename(filepath))
+    if m:
+        return int(m.group(1)) * 10**9 + int(m.group(2))
+    return None
+
+
+def show_bag_image_near_timestamp(bag_path, image_topic, target_ns):
+    """
+    Show the nearest camera image from a ROS2 bag to target_ns (nanoseconds).
+    Displays in a non-blocking matplotlib window. Returns True on success.
+    Requires rosbag2_py + rclpy (available when ROS2 is sourced).
+    """
+    if not bag_path or not image_topic or target_ns is None:
+        return False
+    try:
+        import rosbag2_py
+        from rclpy.serialization import deserialize_message
+        from rosidl_runtime_py.utilities import get_message
+    except ImportError:
+        print("  [Camera] rosbag2_py/rclpy not available — skipping image display.")
+        return False
+    try:
+        reader = rosbag2_py.SequentialReader()
+        storage_options = rosbag2_py.StorageOptions(uri=bag_path, storage_id='sqlite3')
+        converter_options = rosbag2_py.ConverterOptions('', '')
+        reader.open(storage_options, converter_options)
+
+        topic_types = {t.name: t.type for t in reader.get_all_topics_and_types()}
+        if image_topic not in topic_types:
+            print(f"  [Camera] Topic '{image_topic}' not found in bag.")
+            return False
+        msg_type_str = topic_types[image_topic]
+        msg_type = get_message(msg_type_str)
+
+        try:
+            reader.seek(max(0, target_ns - int(1e9)))
+        except AttributeError:
+            pass
+        try:
+            reader.set_filter(rosbag2_py.StorageFilter(topics=[image_topic]))
+        except Exception:
+            pass
+
+        best_data, best_dt = None, float('inf')
+        while reader.has_next():
+            _, data, ts = reader.read_next()
+            dt = abs(ts - target_ns)
+            if dt < best_dt:
+                best_dt, best_data = dt, data
+            if ts > target_ns + int(1e9):
+                break
+
+        if best_data is None:
+            print("  [Camera] No image found near this timestamp.")
+            return False
+
+        msg = deserialize_message(best_data, msg_type)
+
+        pil_img = None
+        if 'Compressed' in msg_type_str:
+            pil_img = Image.open(io.BytesIO(bytes(msg.data)))
+        else:
+            arr = np.frombuffer(bytes(msg.data), dtype=np.uint8)
+            enc = getattr(msg, 'encoding', 'rgb8')
+            if enc == 'bgr8':
+                arr = arr.reshape((msg.height, msg.width, 3))[:, :, ::-1]
+            elif enc == 'rgb8':
+                arr = arr.reshape((msg.height, msg.width, 3))
+            elif enc == 'mono8':
+                arr = arr.reshape((msg.height, msg.width))
+            else:
+                print(f"  [Camera] Unknown encoding '{enc}', skipping.")
+                return False
+            pil_img = Image.fromarray(arr)
+
+        plt.ion()
+        plt.figure("Camera Image", figsize=(8, 5))
+        plt.clf()
+        plt.imshow(pil_img)
+        plt.title(f"Camera (dt={best_dt/1e6:.1f} ms from LiDAR stamp)")
+        plt.axis('off')
+        plt.tight_layout()
+        plt.draw()
+        plt.pause(0.1)
+        return True
+
+    except Exception as e:
+        print(f"  [Camera] Could not show bag image: {e}")
+        return False
+
+
+def display_cluster_samples(pcd_folder, filenames, cluster_id, num_samples, config,
+                            bag_path=None, image_topic=None):
     if not filenames:
         print(f"  No samples to display for Cluster {cluster_id}.")
         return
@@ -345,32 +441,37 @@ def display_cluster_samples(pcd_folder, filenames, cluster_id, num_samples, conf
     sample_indices = np.random.choice(len(filenames), min(num_samples, len(filenames)), replace=False)
 
     print(f"\n--- Displaying {len(sample_indices)} samples for Cluster {cluster_id} ---")
-    print("Close the Open3D window to view the next sample or cluster.")
-    print("Press Ctrl+C in terminal to stop viewing samples and proceed.")
+    print("Close the Open3D window to proceed.")
 
     for i, idx in enumerate(sample_indices):
         filepath = os.path.join(pcd_folder, filenames[idx])
-        pcd_all_o3d, line_set, _, _ = visualize_footprint_at_timestep(
-            filepath,
-            config,
-            show_footprint_lines=True # Always show footprint lines for manual inspection
+        _, line_set, pcd_footprint_slice, _ = visualize_footprint_at_timestep(
+            filepath, config, show_footprint_lines=True
         )
-        if pcd_all_o3d:
-            # Color the whole point cloud (not just footprint) for clarity
-            pcd_all_o3d.paint_uniform_color([0.1, 0.7, 0.1]) # Greenish for clarity
+        if pcd_footprint_slice:
+            pcd_footprint_slice.paint_uniform_color([0.1, 0.7, 0.1])
+
+            # Show camera image (non-blocking matplotlib window) before Open3D
+            cam_shown = False
+            if bag_path and image_topic:
+                target_ns = _parse_pcd_timestamp_ns(filepath)
+                cam_shown = show_bag_image_near_timestamp(bag_path, image_topic, target_ns)
 
             vis = o3d.visualization.Visualizer()
-            vis.create_window(window_name=f"Cluster {cluster_id} Sample {i+1}/{len(sample_indices)}: {os.path.basename(filepath)}")
+            vis.create_window(window_name=f"Cluster {cluster_id} — Sample {i+1}/{len(sample_indices)}: {os.path.basename(filepath)}")
             render_option = vis.get_render_option()
             render_option.background_color = np.asarray([0, 0, 0])
-            vis.add_geometry(pcd_all_o3d)
+            vis.add_geometry(pcd_footprint_slice)
             if line_set:
                 vis.add_geometry(line_set)
-            vis.run() # This blocks until the window is closed
+            vis.run()
             vis.destroy_window()
-            time.sleep(0.5) # Small pause between windows
+
+            if cam_shown:
+                plt.close("Camera Image")
+            time.sleep(0.3)
         else:
-            print(f"Could not load/process sample {filepath} for Cluster {cluster_id}.")
+            print(f"  Could not load/process sample {filepath} for Cluster {cluster_id}.")
 
 
 def generate_cluster_gif(pcd_folder, pcd_filenames, cluster_labels, cluster_id_to_label,
@@ -391,16 +492,16 @@ def generate_cluster_gif(pcd_folder, pcd_filenames, cluster_labels, cluster_id_t
         print(f"  Processing frame {i+1}/{len(pcd_filenames)}: {os.path.basename(filename_full_path)} (Cluster: {current_cluster_id}, Label: {cluster_description})")
 
         vis.clear_geometries()
-        pcd_all_o3d, line_set, _, _ = visualize_footprint_at_timestep(
-            filename_full_path, # Pass the full path here
+        _, line_set, pcd_footprint_slice, _ = visualize_footprint_at_timestep(
+            filename_full_path,
             config,
             show_footprint_lines=True
         )
 
-        if pcd_all_o3d is not None and line_set is not None:
-            pcd_all_o3d.paint_uniform_color(cluster_color[:3])
+        if pcd_footprint_slice is not None and line_set is not None:
+            pcd_footprint_slice.paint_uniform_color(cluster_color[:3])
 
-            vis.add_geometry(pcd_all_o3d)
+            vis.add_geometry(pcd_footprint_slice)
             vis.add_geometry(line_set)
 
             vis.reset_view_point(True)
@@ -466,7 +567,10 @@ if __name__ == "__main__":
         "min_intensity": 32.0,
         "max_intensity": 68.0,
         "pcd_start_idx": 500,       # first file index (inclusive)
-        "pcd_end_idx": 3000,      # last file index (exclusive); None = all
+        "pcd_end_idx": 3000,        # last file index (exclusive); None = all
+        # Camera image display during labeling (set both to None to disable)
+        "bag_path": "/media/akilasar/dcist_rrg/akila_data_hockfield/recorded_data",           # e.g. "/media/akilasar/dcist_rrg/akila_data_hockfield/recorded_data"
+        "image_topic": "/hamilton/hamilton_zed/rgb/image_rect_color",        # e.g. "/camera/image_raw/compressed"
     }
     
     # Define all model and artifact paths based on the training data name
@@ -622,36 +726,61 @@ if __name__ == "__main__":
         with open(global_config['cluster_labels_mapping_path'], 'r') as f:
             cluster_id_to_label = {int(k): v for k, v in json.load(f).items()}
         print(f"Loaded existing cluster labels from {global_config['cluster_labels_mapping_path']}")
+
+        # Check for any new clusters that are missing labels and offer to label them now
+        missing = [c for c in unique_train_clusters if c >= 0 and c not in cluster_id_to_label]
+        if missing:
+            print(f"\nNew unlabeled clusters found: {missing}. Starting inline labeling for them.")
+            _clusters_to_label = missing
+        else:
+            _clusters_to_label = []
     else:
-        print(f"\nNo existing cluster labels found. Please review the output plot and create the file '{global_config['cluster_labels_mapping_path']}' with your labels.")
-    
-        for cluster_id in sorted(unique_train_clusters):
-            if cluster_id != -1: # Don't display noise clusters for manual labeling
-                print(f"\nViewing samples for Cluster: {cluster_id}")
-                cluster_filenames = cluster_to_train_filepaths[cluster_id]
-                display_cluster_samples(training_pcd_folder, cluster_filenames, cluster_id, 
-                                        3, global_config)
-            else:
-                print(f"\nSkipping display for Noise Cluster (-1).")
-        
+        print(f"\nNo existing cluster labels found — starting interactive labeling.")
+        _clusters_to_label = [c for c in sorted(unique_train_clusters) if c >= 0]
+
+    if _clusters_to_label:
+        bag_path = global_config.get('bag_path')
+        image_topic = global_config.get('image_topic')
+        n_show = global_config.get('num_samples_to_show_per_cluster', 3)
+
         print("\n" + "="*80)
-        print("END OF MANUAL LABELING STEP.")
-        print(f"Please create/edit the file '{global_config['cluster_labels_mapping_path']}' with your labels.")
-        print("Then, run the script again.")
+        print("INTERACTIVE LABELING")
+        print("  For each cluster: view samples, then enter a label.")
+        print("  Commands: [l] label it   [v] view more samples   [s] skip")
+        if bag_path and image_topic:
+            print(f"  Camera images will be shown from: {bag_path}  topic: {image_topic}")
         print("="*80)
-        exit() 
-    # else: # If JSON exists, check for missing labels
-    #     missing_labels = [c for c in unique_train_clusters if c >= 0 and c not in cluster_id_to_label]
-    #     if missing_labels:
-    #         print(f"\nWARNING: Missing labels for clusters {missing_labels} in {global_config['cluster_labels_mapping_path']}.")
-    #         print("Please update your JSON file with labels for these clusters.")
-    #         print("You may proceed, but these clusters will not have descriptive labels in the GIF.")
-    #         proceed = input("Continue anyway? (y/n): ")
-    #         if proceed.lower() != 'y':
-    #             print("Exiting to allow label update.")
-    #             exit()
-    #     else:
-    #         print("\nAll training clusters have labels. Proceeding with inference and visualization.")
+
+        for cluster_id in sorted(_clusters_to_label):
+            cluster_filenames = cluster_to_train_filepaths[cluster_id]
+            print(f"\n--- Cluster {cluster_id}  ({len(cluster_filenames)} scans) ---")
+
+            while True:
+                display_cluster_samples(
+                    training_pcd_folder, cluster_filenames, cluster_id,
+                    n_show, global_config,
+                    bag_path=bag_path, image_topic=image_topic
+                )
+                choice = input(f"  [l]abel / [v]iew more / [s]kip cluster {cluster_id}: ").strip().lower()
+                if choice == 'l':
+                    label = input(f"  Label for cluster {cluster_id}: ").strip()
+                    if label:
+                        cluster_id_to_label[cluster_id] = label
+                        print(f"  -> Labeled as '{label}'")
+                    else:
+                        print(f"  Empty input — cluster {cluster_id} left unlabeled.")
+                    break
+                elif choice == 'v':
+                    continue
+                else:
+                    print(f"  Skipped cluster {cluster_id}.")
+                    break
+
+        os.makedirs(os.path.dirname(global_config['cluster_labels_mapping_path']), exist_ok=True)
+        with open(global_config['cluster_labels_mapping_path'], 'w') as f:
+            json.dump({str(k): v for k, v in cluster_id_to_label.items()}, f, indent=2)
+        print(f"\nLabels saved to: {global_config['cluster_labels_mapping_path']}")
+        print("Continuing with visualization...\n")
 
     color_map_global = {}
     color_map_global[-1] = np.array([0.2, 0.2, 0.2, 1.0]) # Dark Grey for HDBSCAN Noise

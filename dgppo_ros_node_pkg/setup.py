@@ -29,6 +29,7 @@ setup(
             'spot_dgppo_ros_node = dgppo_ros_node_pkg.spot_dgppo_ros_node:main',
             'dgppo_test_node = dgppo_ros_node_pkg.dgppo_test_node:main',
             'dgppo_debug_visualizer = dgppo_ros_node_pkg.dgppo_debug_visualizer:main',
+            'dgppo_debug_visualizer_v2 = dgppo_ros_node_pkg.dgppo_debug_visualizer_v2:main',
         ],
     },
 )

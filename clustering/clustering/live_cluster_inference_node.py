@@ -121,8 +121,8 @@ class LiveClusterInferenceNode(Node):
         # --- Subscription and Publishing ---
         self.subscription = self.create_subscription(
             PointCloud2,
-            '/carla/ego_vehicle/lidar',
-            #'/livox/lidar',
+            #'/carla/ego_vehicle/lidar',
+            '/livox/lidar',
             self.pointcloud_callback,
             qos_profile=qos_profile_sensor_data
         )

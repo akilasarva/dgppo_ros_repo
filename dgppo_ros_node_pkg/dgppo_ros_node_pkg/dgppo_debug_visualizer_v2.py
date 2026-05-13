@@ -3,21 +3,19 @@
 DGPPO Debug Visualizer v2
 
 Usage:
-  python3 dgppo_debug_visualizer_v2.py [plan.json]           # desktop (matplotlib)
-  python3 dgppo_debug_visualizer_v2.py [plan.json] --web     # web server only
-  python3 dgppo_debug_visualizer_v2.py [plan.json] --both    # desktop + web
+  ros2 run dgppo_ros_node_pkg dgppo_debug_visualizer_v2 -- [plan.json]
+  ros2 run dgppo_ros_node_pkg dgppo_debug_visualizer_v2 -- [plan.json] --web
+  ros2 run dgppo_ros_node_pkg dgppo_debug_visualizer_v2 -- [plan.json] --both
 
-Web server publishes filter config to /lidar_filter_config (Float32MultiArray:
-  [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range, use_intensity])
-so the clustering node can subscribe and apply changes dynamically.
+Coordinate conventions (after corrections):
+  Display: TOP = robot FORWARD, RIGHT = robot RIGHT, LEFT = robot LEFT
+  - Raw cloud x is negated (lidar upside-down; sensor +x = physical LEFT → display LEFT)
+  - Processed-range beams: x negated the same way (bin 0 = physical LEFT → LEFT on display)
+  - Bearing/heading arrows: angle 0 = forward = UP  (stored as raw radians, +π/2 applied at draw)
+  - Action arrow: atan2(a1_fwd, a0_right); forward → UP, right → RIGHT — already correct
 
-Subscribes to:
-  /dgppo_action       Float32MultiArray  [a0, a1]
-  /predicted_cluster  Int16
-  /current_terrain    Int32
-  /dgppo_plan_step    Int32
-  /processed_ranges   Float32MultiArray  (72-bin range array from clustering node)
-  /spot/odometry      nav_msgs/Odometry  (Spot robot heading)
+Z-height mode  → yellow slice; same z-band sent to clustering node → affects actual clustering
+Intensity mode → magenta slice; visual-only; clustering node still uses Z-height
 """
 
 import sys, os, json, math, threading, argparse
@@ -41,50 +39,54 @@ from rclpy.qos import qos_profile_sensor_data
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-NUM_RANGES = 72
-TOP_K      = 8
+NUM_RANGES  = 72
+TOP_K       = 8
 HISTORY_LEN = 20
-WEB_PORT   = 8765
+WEB_PORT    = 8765
 
-TERRAIN_NAMES  = {0: "Road", 1: "Grass", 2: "Sidewalk"}
-CLUSTER_NAMES  = {0: "open_space", 1: "approach_bridge", 2: "on_bridge", 3: "exit_bridge"}
-RAW_TO_MAPPED  = {
+TERRAIN_NAMES = {0: "Road", 1: "Grass", 2: "Sidewalk"}
+CLUSTER_NAMES = {0: "open_space", 1: "approach_bridge", 2: "on_bridge", 3: "exit_bridge"}
+RAW_TO_MAPPED = {
     **{k: 1 for k in [2, 3]},
     **{k: 2 for k in [5, 6, 7, 8, 9]},
     **{k: 3 for k in [-1, 4]},
     **{k: 0 for k in [0, 1]},
 }
 
-# Outdoor-optimized palette: bright saturated hues on near-black background
-C_BG        = '#0d1117'
-C_PANEL     = '#161b22'
-C_GRID      = '#30363d'
-C_CIRCLE    = '#58a6ff'   # unit circle
-C_TEXT      = '#ffffff'
-C_DIM       = '#8b949e'
-C_LIDAR     = '#00cc44'   # bright green: lidar beams
-C_TOPK      = '#ff6600'   # bright orange: top-k hits
-C_ACTION    = '#00cfff'   # bright cyan: action direction
-C_BEARING   = '#ffd700'   # gold: plan bearing
-C_HEADING   = '#cc44ff'   # purple: spot odom heading
-C_TRAIL     = '#3060cc'   # blue trail
-C_WARN      = '#ff4444'   # red: no-action / stop
-C_CLOUD_ALL   = '#2a2a3a'   # very dim: all raw cloud points
-C_CLOUD_SLICE = '#ffcc00'   # yellow: points inside z/intensity slice
+# Outdoor palette
+C_BG            = '#0d1117'
+C_PANEL         = '#161b22'
+C_GRID          = '#30363d'
+C_CIRCLE        = '#58a6ff'
+C_TEXT          = '#ffffff'
+C_DIM           = '#8b949e'
+C_LIDAR         = '#00cc44'    # green: processed-range beams
+C_TOPK          = '#ff6600'    # orange: top-k policy inputs
+C_ACTION        = '#00cfff'    # cyan: action direction
+C_BEARING       = '#ffd700'    # gold: plan bearing
+C_HEADING       = '#cc44ff'    # purple: spot heading
+C_TRAIL         = '#3060cc'    # blue: action trail
+C_WARN          = '#ff4444'    # red: stop/no-action
+C_CLOUD_ALL     = '#2a2a3a'    # dim: all raw cloud XY
+C_CLOUD_SLICE_Z = '#ffcc00'    # yellow: Z-height slice (controls clustering)
+C_CLOUD_SLICE_I = '#ff44cc'    # magenta: intensity slice (visual only)
 
 
-# ── Filter config (shared between sliders and ROS publisher) ──────────────────
+# ── Filter config ─────────────────────────────────────────────────────────────
 
 class FilterConfig:
     def __init__(self):
-        self._lock = threading.Lock()
-        self.z_upper       = 1.26
-        self.z_lower       = 0.56
-        self.z2_upper      = 0.0
-        self.z2_lower      = 0.0
-        self.max_range     = 8.0
-        self.min_range     = 0.5
+        self._lock     = threading.Lock()
+        self.z_upper   = 1.26
+        self.z_lower   = 0.56
+        self.z2_upper  = 0.0
+        self.z2_lower  = 0.0
+        self.max_range = 8.0
+        self.min_range = 0.5
         self.use_intensity = False
+        # Intensity bounds — visualizer slice only; clustering always uses Z
+        self.int_lower = 0.0
+        self.int_upper = 500.0
 
     def get(self):
         with self._lock:
@@ -93,6 +95,7 @@ class FilterConfig:
                 z2_upper=self.z2_upper, z2_lower=self.z2_lower,
                 max_range=self.max_range, min_range=self.min_range,
                 use_intensity=self.use_intensity,
+                int_lower=self.int_lower, int_upper=self.int_upper,
             )
 
     def set(self, **kw):
@@ -102,22 +105,22 @@ class FilterConfig:
                     setattr(self, k, v)
 
 
-# ── Shared state ─────────────────────────────────────────────────────────────
+# ── Shared state ──────────────────────────────────────────────────────────────
 
 class DebugState:
     def __init__(self, plan_sequence, bearing_map, filter_cfg: FilterConfig):
-        self._lock          = threading.Lock()
-        self.action         = np.zeros(2)
-        self.has_action     = False
-        self.raw_cluster    = None
-        self.terrain_id     = 1
-        self.plan_step      = 0
-        self.plan_sequence  = plan_sequence
-        self.bearing_map    = bearing_map
-        self.spot_yaw       = None
+        self._lock           = threading.Lock()
+        self.action          = np.zeros(2)
+        self.has_action      = False
+        self.raw_cluster     = None
+        self.terrain_id      = 1
+        self.plan_step       = 0
+        self.plan_sequence   = plan_sequence
+        self.bearing_map     = bearing_map
+        self.spot_yaw        = None
         self.processed_ranges = None
-        self.raw_cloud      = None   # (N, 4): x, y, z, intensity — downsampled
-        self.filter_cfg     = filter_cfg
+        self.raw_cloud       = None   # (N,4): x,y,z,intensity from lidar
+        self.filter_cfg      = filter_cfg
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -125,28 +128,22 @@ class DebugState:
             self.has_action = True
 
     def set_cluster(self, raw):
-        with self._lock:
-            self.raw_cluster = raw
+        with self._lock: self.raw_cluster = raw
 
     def set_terrain(self, tid):
-        with self._lock:
-            self.terrain_id = tid
+        with self._lock: self.terrain_id = tid
 
     def set_plan_step(self, step):
-        with self._lock:
-            self.plan_step = step
+        with self._lock: self.plan_step = step
 
     def set_spot_yaw(self, yaw):
-        with self._lock:
-            self.spot_yaw = yaw
+        with self._lock: self.spot_yaw = yaw
 
     def set_processed_ranges(self, r):
-        with self._lock:
-            self.processed_ranges = r
+        with self._lock: self.processed_ranges = r
 
     def set_raw_cloud(self, pts):
-        with self._lock:
-            self.raw_cloud = pts
+        with self._lock: self.raw_cloud = pts
 
     def snapshot(self):
         with self._lock:
@@ -167,7 +164,7 @@ class DebugState:
             )
 
 
-# ── ROS node ─────────────────────────────────────────────────────────────────
+# ── ROS node ──────────────────────────────────────────────────────────────────
 
 class DebugSubscriber(Node):
     def __init__(self, state: DebugState):
@@ -178,9 +175,9 @@ class DebugSubscriber(Node):
         sub(Int16,             '/predicted_cluster', self._cb_cluster,  10)
         sub(Int32,             '/current_terrain',   self._cb_terrain,  10)
         sub(Int32,             '/dgppo_plan_step',   self._cb_planstep, 10)
-        sub(Float32MultiArray, '/processed_ranges',  self._cb_ranges,    10)
-        sub(Float32MultiArray, '/dgppo_spot_yaw',    self._cb_spot_yaw,  10)
-        sub(PointCloud2,       '/livox/lidar',       self._cb_cloud,     qos_profile_sensor_data)
+        sub(Float32MultiArray, '/processed_ranges',  self._cb_ranges,   10)
+        sub(Float32MultiArray, '/dgppo_spot_yaw',    self._cb_spot_yaw, 10)
+        sub(PointCloud2,       '/livox/lidar',       self._cb_cloud,    qos_profile_sensor_data)
         self._cfg_pub = self.create_publisher(Float32MultiArray, '/lidar_filter_config', 10)
         self.create_timer(0.2, self._pub_cfg)
 
@@ -188,14 +185,9 @@ class DebugSubscriber(Node):
         if len(msg.data) >= 2:
             self.state.set_action(msg.data[0], msg.data[1])
 
-    def _cb_cluster(self, msg):
-        self.state.set_cluster(msg.data)
-
-    def _cb_terrain(self, msg):
-        self.state.set_terrain(msg.data)
-
-    def _cb_planstep(self, msg):
-        self.state.set_plan_step(msg.data)
+    def _cb_cluster(self, msg):  self.state.set_cluster(msg.data)
+    def _cb_terrain(self, msg):  self.state.set_terrain(msg.data)
+    def _cb_planstep(self, msg): self.state.set_plan_step(msg.data)
 
     def _cb_ranges(self, msg):
         if msg.data:
@@ -213,9 +205,8 @@ class DebugSubscriber(Node):
                               dtype=np.float32)
             if pts.ndim != 2 or pts.shape[0] == 0:
                 return
-            if pts.shape[1] == 3:                               # no intensity field
+            if pts.shape[1] == 3:
                 pts = np.hstack([pts, np.zeros((len(pts), 1), dtype=np.float32)])
-            # Stride-subsample to max 5000 points (deterministic → no flicker)
             stride = max(1, len(pts) // 5000)
             self.state.set_raw_cloud(pts[::stride])
         except Exception:
@@ -224,6 +215,8 @@ class DebugSubscriber(Node):
     def _pub_cfg(self):
         cfg = self.state.filter_cfg.get()
         m = Float32MultiArray()
+        # Matches clustering node's _cb_filter_cfg layout:
+        # [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range, use_intensity]
         m.data = [
             cfg['z_upper'], cfg['z_lower'],
             cfg['z2_upper'], cfg['z2_lower'],
@@ -246,20 +239,19 @@ def _ros_thread(state: DebugState):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def topk_from_ranges(ranges, k=TOP_K, max_range=8.0):
-    n = len(ranges)
+    """Return (k,2) XY of closest k bins, with x negated for upside-down lidar."""
+    n      = len(ranges)
     angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
     valid  = np.where(ranges < max_range * 0.999)[0]
     if len(valid) == 0:
         return np.empty((0, 2))
     idx = valid[np.argsort(ranges[valid])[:k]]
-    return np.column_stack([ranges[idx] * np.cos(angles[idx]),
-                            ranges[idx] * np.sin(angles[idx])])
+    return np.column_stack([-ranges[idx] * np.cos(angles[idx]),   # x negated
+                              ranges[idx] * np.sin(angles[idx])])
 
 
 def _bearing_for_step(snap):
-    ps  = snap['plan_step']
-    seq = snap['plan_sequence']
-    bm  = snap['bearing_map']
+    ps, seq, bm = snap['plan_step'], snap['plan_sequence'], snap['bearing_map']
     if ps < len(seq):
         step = seq[ps]
         return step, bm.get(f"{step['start']}-{step['next']}")
@@ -267,113 +259,104 @@ def _bearing_for_step(snap):
 
 
 def _apply_slice_filter(raw_cloud, cfg):
-    """Split raw cloud (N,4) into (all_xy, slice_xy) using current filter config.
+    """Split raw_cloud (N,4) into (all_xy, slice_xy) with x already negated.
 
-    all_xy   — every point's XY (stride-limited to ≤1500 for display)
-    slice_xy — only points passing z/intensity band + range bounds
+    Z mode  → band filter on abs(z); same parameters sent to clustering node.
+    Int mode → band filter on intensity; clustering node unaffected.
+    The x-negation corrects for upside-down lidar mounting throughout.
     """
     if raw_cloud is None or len(raw_cloud) == 0:
         return None, None
 
-    x, y, z, intensity = raw_cloud[:, 0], raw_cloud[:, 1], raw_cloud[:, 2], raw_cloud[:, 3]
-    dist = np.hypot(x, y)
-
+    x, y, z, intensity = (raw_cloud[:, i] for i in range(4))
+    dist       = np.hypot(x, y)
     range_mask = (dist >= cfg['min_range']) & (dist <= cfg['max_range'])
 
     if cfg['use_intensity']:
-        lo, hi     = cfg['z_lower'], cfg['z_upper']
-        band_mask  = (intensity >= lo) & (intensity <= hi)
+        band_mask = (intensity >= cfg['int_lower']) & (intensity <= cfg['int_upper'])
     else:
-        abs_z      = np.abs(z)
-        band1      = (abs_z >= cfg['z_lower'])  & (abs_z <= cfg['z_upper'])
-        band2_on   = cfg['z2_upper'] > cfg['z2_lower']
-        band2      = (abs_z >= cfg['z2_lower']) & (abs_z <= cfg['z2_upper']) if band2_on \
-                     else np.zeros(len(z), dtype=bool)
-        band_mask  = band1 | band2
+        abs_z    = np.abs(z)
+        band1    = (abs_z >= cfg['z_lower'])  & (abs_z <= cfg['z_upper'])
+        band2_on = cfg['z2_upper'] > cfg['z2_lower']
+        band2    = ((abs_z >= cfg['z2_lower']) & (abs_z <= cfg['z2_upper'])
+                    if band2_on else np.zeros(len(z), dtype=bool))
+        band_mask = band1 | band2
 
-    all_xy   = raw_cloud[:, :2]
-    slice_xy = raw_cloud[band_mask & range_mask, :2]
-    return all_xy, slice_xy
+    # Negate x to correct for upside-down lidar (sensor +x = physical LEFT)
+    xy_flipped = np.column_stack([-x, y])
+    return xy_flipped, xy_flipped[band_mask & range_mask]
 
 
 # ── Desktop visualizer ────────────────────────────────────────────────────────
 
 def _build_figure():
-    fig = plt.figure(figsize=(15, 9), facecolor=C_BG)
+    fig = plt.figure(figsize=(16, 9), facecolor=C_BG)
     fig.suptitle('DGPPO Policy Debugger  v2', color=C_TEXT, fontsize=14,
                  y=0.985, fontweight='bold')
 
-    # Main lidar/arrow frame
-    ax = fig.add_axes([0.03, 0.19, 0.57, 0.77])
+    ax = fig.add_axes([0.03, 0.17, 0.57, 0.79])
     ax.set_facecolor(C_PANEL)
     lim = 9.5
-    ax.set_xlim(-lim, lim)
-    ax.set_ylim(-lim, lim)
-    ax.set_aspect('equal')
-    for sp in ax.spines.values():
-        sp.set_color(C_GRID)
+    ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_aspect('equal')
+    for sp in ax.spines.values(): sp.set_color(C_GRID)
     ax.tick_params(colors=C_DIM, labelsize=7)
-    ax.axhline(0, color=C_GRID, lw=0.8)
-    ax.axvline(0, color=C_GRID, lw=0.8)
+    ax.axhline(0, color=C_GRID, lw=0.8); ax.axvline(0, color=C_GRID, lw=0.8)
 
     th = np.linspace(0, 2 * np.pi, 300)
     for r in [2, 4, 6, 8]:
         ax.plot(r * np.cos(th), r * np.sin(th), color=C_GRID, lw=0.6, ls='--')
         ax.text(r * 0.72, r * 0.72, f'{r}m', color=C_DIM, fontsize=6, ha='center')
-    # Unit circle highlights action arrow tip
-    ax.plot(np.cos(th), np.sin(th), color=C_CIRCLE, lw=1.8, ls='-', alpha=0.75)
+    ax.plot(np.cos(th), np.sin(th), color=C_CIRCLE, lw=1.8, alpha=0.75)
 
-    for xy, txt in [((0, lim*0.96), 'FWD +y'), ((0, -lim*0.96), 'BCK -y'),
-                    ((lim*0.96, 0), 'RT +x'), ((-lim*0.96, 0), 'LT -x')]:
-        ax.text(xy[0], xy[1], txt, color=C_DIM, fontsize=8, ha='center', va='center')
+    for (px, py), txt in [((0,  lim*0.96), 'FWD'),  ((0, -lim*0.96), 'BCK'),
+                           ((lim*0.96, 0),  'RIGHT'), ((-lim*0.96, 0), 'LEFT')]:
+        ax.text(px, py, txt, color=C_DIM, fontsize=8, ha='center', va='center')
 
     ax.set_title(
-        'Processed ranges  |  Orange = closest 8 (policy input)  |  Cyan arrow = action direction (unit)',
-        color=C_TEXT, fontsize=9, pad=5)
+        'TOP=FWD · Lidar x-flipped (upside-down mount) · Orange=top-8 policy inputs · Cyan=action',
+        color=C_TEXT, fontsize=8.5, pad=5)
 
     leg = [
-        mpatches.Patch(color='#555566',   label='raw cloud (all XY)'),
-        mpatches.Patch(color=C_CLOUD_SLICE, label='z/intensity slice'),
-        mpatches.Patch(color=C_LIDAR,   label=f'processed ranges ({NUM_RANGES} bins)'),
-        mpatches.Patch(color=C_TOPK,    label=f'top-{TOP_K} closest → policy'),
-        mpatches.Patch(color=C_ACTION,  label='action direction (unit vector)'),
-        mpatches.Patch(color=C_BEARING, label='plan bearing'),
-        mpatches.Patch(color=C_HEADING, label='spot odom heading'),
+        mpatches.Patch(color='#555566',       label='raw cloud (all XY)'),
+        mpatches.Patch(color=C_CLOUD_SLICE_Z, label='Z-height slice  → clustering node'),
+        mpatches.Patch(color=C_CLOUD_SLICE_I, label='Intensity slice (visual only)'),
+        mpatches.Patch(color=C_LIDAR,         label=f'processed ranges ({NUM_RANGES} bins)'),
+        mpatches.Patch(color=C_TOPK,          label=f'top-{TOP_K} closest → policy input'),
+        mpatches.Patch(color=C_ACTION,        label='action direction (unit vec)'),
+        mpatches.Patch(color=C_BEARING,       label='plan bearing  (0=FWD=UP)'),
+        mpatches.Patch(color=C_HEADING,       label='spot heading  (0=FWD=UP)'),
     ]
     ax.legend(handles=leg, loc='lower right', facecolor=C_BG,
-              edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=8)
+              edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=7.5)
 
-    # Info panel
-    ax_info = fig.add_axes([0.63, 0.19, 0.35, 0.77])
-    ax_info.set_facecolor(C_PANEL)
-    ax_info.axis('off')
+    ax_info = fig.add_axes([0.63, 0.17, 0.35, 0.79])
+    ax_info.set_facecolor(C_PANEL); ax_info.axis('off')
 
-    # ── Slider row (bottom) ───────────────────────────────────────────────────
-    s_h, s_y = 0.028, 0.025
-    g = 0.115
-    ax_zlo  = fig.add_axes([0.03,        s_y, 0.09, s_h], facecolor=C_PANEL)
-    ax_zhi  = fig.add_axes([0.03 + g,    s_y, 0.09, s_h], facecolor=C_PANEL)
-    ax_rmin = fig.add_axes([0.03 + g*2,  s_y, 0.09, s_h], facecolor=C_PANEL)
-    ax_rmax = fig.add_axes([0.03 + g*3,  s_y, 0.09, s_h], facecolor=C_PANEL)
-    ax_mode = fig.add_axes([0.03 + g*4,  s_y - 0.01, 0.10, s_h + 0.04], facecolor=C_PANEL)
+    # Slider row — 6 sliders + mode toggle
+    s_h, s_y, g = 0.028, 0.020, 0.087
+    sl_axes = [fig.add_axes([0.03 + i * g, s_y, 0.075, s_h], facecolor=C_PANEL)
+               for i in range(6)]
+    ax_mode = fig.add_axes([0.03 + 6 * g, s_y - 0.012, 0.10, s_h + 0.04], facecolor=C_PANEL)
 
     def _sl(axes, lbl, lo, hi, init, color):
         sl = Slider(axes, lbl, lo, hi, valinit=init, color=color)
-        sl.label.set_color(C_TEXT); sl.label.set_fontsize(8)
-        sl.valtext.set_color(C_TEXT); sl.valtext.set_fontsize(8)
+        sl.label.set_color(C_TEXT);   sl.label.set_fontsize(7)
+        sl.valtext.set_color(C_TEXT); sl.valtext.set_fontsize(7)
         return sl
 
-    sl_zlo  = _sl(ax_zlo,  'Z min', 0.0,  3.0, 0.56, C_TOPK)
-    sl_zhi  = _sl(ax_zhi,  'Z max', 0.0,  3.0, 1.26, C_TOPK)
-    sl_rmin = _sl(ax_rmin, 'R min', 0.0,  2.0, 0.50, C_LIDAR)
-    sl_rmax = _sl(ax_rmax, 'R max', 1.0, 20.0, 8.00, C_LIDAR)
+    sl_zlo  = _sl(sl_axes[0], 'Z min',   0.0,    3.0,   0.56, C_CLOUD_SLICE_Z)
+    sl_zhi  = _sl(sl_axes[1], 'Z max',   0.0,    3.0,   1.26, C_CLOUD_SLICE_Z)
+    sl_ilo  = _sl(sl_axes[2], 'Int min', 0.0, 1000.0,    0.0, C_CLOUD_SLICE_I)
+    sl_ihi  = _sl(sl_axes[3], 'Int max', 0.0, 1000.0,  500.0, C_CLOUD_SLICE_I)
+    sl_rmin = _sl(sl_axes[4], 'R min',   0.0,    2.0,   0.50, C_LIDAR)
+    sl_rmax = _sl(sl_axes[5], 'R max',   1.0,   20.0,   8.00, C_LIDAR)
 
-    rb_mode = RadioButtons(ax_mode, ('Z height', 'Intensity'),
-                           activecolor=C_TOPK)
+    rb_mode = RadioButtons(ax_mode, ('Z height', 'Intensity'), activecolor=C_TOPK)
     for lbl in rb_mode.labels:
-        lbl.set_color(C_TEXT); lbl.set_fontsize(8)
+        lbl.set_color(C_TEXT); lbl.set_fontsize(7.5)
 
-    sliders = dict(zlo=sl_zlo, zhi=sl_zhi, rmin=sl_rmin, rmax=sl_rmax, mode=rb_mode)
+    sliders = dict(zlo=sl_zlo, zhi=sl_zhi, ilo=sl_ilo, ihi=sl_ihi,
+                   rmin=sl_rmin, rmax=sl_rmax, mode=rb_mode)
     return fig, ax, ax_info, sliders
 
 
@@ -385,14 +368,16 @@ def run_desktop(state: DebugState):
 
     def _apply_sliders(_=None):
         state.filter_cfg.set(
-            z_lower    = sliders['zlo'].val,
-            z_upper    = sliders['zhi'].val,
-            min_range  = sliders['rmin'].val,
-            max_range  = sliders['rmax'].val,
+            z_lower       = sliders['zlo'].val,
+            z_upper       = sliders['zhi'].val,
+            int_lower     = sliders['ilo'].val,
+            int_upper     = sliders['ihi'].val,
+            min_range     = sliders['rmin'].val,
+            max_range     = sliders['rmax'].val,
             use_intensity = (sliders['mode'].value_selected == 'Intensity'),
         )
 
-    for key in ('zlo', 'zhi', 'rmin', 'rmax'):
+    for key in ('zlo', 'zhi', 'ilo', 'ihi', 'rmin', 'rmax'):
         sliders[key].on_changed(_apply_sliders)
     sliders['mode'].on_clicked(_apply_sliders)
 
@@ -403,105 +388,88 @@ def run_desktop(state: DebugState):
         lst.clear()
 
     def _clear():
-        _rm(H['lidar'])
-        _rm(H['trail'])
-        _rm(H['texts'])
-        for key in ('arrow', 'bearing', 'heading'):
-            if H[key] is not None:
-                try: H[key].remove()
+        _rm(H['lidar']); _rm(H['trail']); _rm(H['texts'])
+        for k in ('arrow', 'bearing', 'heading'):
+            if H[k] is not None:
+                try: H[k].remove()
                 except Exception: pass
-            H[key] = None
+            H[k] = None
 
     def _arrow(xy_tip, color, lw, alpha=1.0):
         return ax.annotate('', xy=xy_tip, xytext=(0, 0),
-                           arrowprops=dict(arrowstyle='->',
-                                           color=color, lw=lw,
-                                           mutation_scale=28, alpha=alpha))
+                           arrowprops=dict(arrowstyle='->', color=color,
+                                           lw=lw, mutation_scale=28, alpha=alpha))
 
     def update(_frame):
         snap = state.snapshot()
         _clear()
 
-        a0, a1       = float(snap['action'][0]), float(snap['action'][1])
-        mag          = math.hypot(a0, a1)
-        cfg          = snap['filter_cfg']
-        max_range    = cfg['max_range']
-        ranges       = snap['processed_ranges']
-        spot_yaw     = snap['spot_yaw']
-        terrain_id   = snap['terrain_id']
-        raw_cluster  = snap['raw_cluster']
+        a0, a1      = float(snap['action'][0]), float(snap['action'][1])
+        mag         = math.hypot(a0, a1)
+        cfg         = snap['filter_cfg']
+        max_range   = cfg['max_range']
+        ranges      = snap['processed_ranges']
+        spot_yaw    = snap['spot_yaw']
+        raw_cluster = snap['raw_cluster']
         current_step, bearing_rad = _bearing_for_step(snap)
-        mapped       = RAW_TO_MAPPED.get(raw_cluster, raw_cluster) \
-                       if raw_cluster is not None else None
+        mapped = RAW_TO_MAPPED.get(raw_cluster, raw_cluster) \
+                 if raw_cluster is not None else None
+        slice_color = C_CLOUD_SLICE_I if cfg['use_intensity'] else C_CLOUD_SLICE_Z
 
-        # ── Raw cloud layers ──────────────────────────────────────────────
+        # ── Raw cloud layers (x already negated by _apply_slice_filter) ──
         raw_cloud = snap.get('raw_cloud')
         if raw_cloud is not None:
             all_xy, slice_xy = _apply_slice_filter(raw_cloud, cfg)
-
-            # Layer 1 — all XY (dim gray, stride-limited)
             if all_xy is not None and len(all_xy):
                 stride = max(1, len(all_xy) // 1500)
-                disp   = all_xy[::stride]
-                h = ax.scatter(disp[:, 0], disp[:, 1], s=1.5,
-                               color=C_CLOUD_ALL, zorder=1, linewidths=0, alpha=0.7)
-                H['lidar'].append(h)
-
-            # Layer 2 — z/intensity slice (yellow)
+                d = all_xy[::stride]
+                H['lidar'].append(ax.scatter(d[:, 0], d[:, 1], s=1.5,
+                                             color=C_CLOUD_ALL, zorder=1,
+                                             linewidths=0, alpha=0.7))
             if slice_xy is not None and len(slice_xy):
                 stride = max(1, len(slice_xy) // 800)
-                disp   = slice_xy[::stride]
-                h = ax.scatter(disp[:, 0], disp[:, 1], s=4,
-                               color=C_CLOUD_SLICE, zorder=2, linewidths=0, alpha=0.85)
-                H['lidar'].append(h)
+                d = slice_xy[::stride]
+                H['lidar'].append(ax.scatter(d[:, 0], d[:, 1], s=4,
+                                             color=slice_color, zorder=2,
+                                             linewidths=0, alpha=0.85))
 
-        # ── Processed-range LiDAR ────────────────────────────────────────
+        # ── Processed-range beams (x negated for upside-down correction) ─
         if ranges is not None and len(ranges) > 0:
             n      = len(ranges)
             angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
             valid  = ranges < max_range * 0.999
-            ex     = np.where(valid, ranges * np.cos(angles), np.nan)
-            ey     = np.where(valid, ranges * np.sin(angles), np.nan)
+            ex = np.where(valid, -ranges * np.cos(angles), np.nan)   # x negated
+            ey = np.where(valid,  ranges * np.sin(angles), np.nan)
 
-            # Beam lines
-            segs = [[[0.0, 0.0], [float(ex[i]), float(ey[i])]]
-                    for i in range(n) if valid[i]]
+            segs = [[[0., 0.], [float(ex[i]), float(ey[i])]] for i in range(n) if valid[i]]
             if segs:
-                lc = LineCollection(segs, colors=C_LIDAR, linewidths=1.0,
-                                    alpha=0.6, zorder=2)
-                ax.add_collection(lc)
-                H['lidar'].append(lc)
+                lc = LineCollection(segs, colors=C_LIDAR, linewidths=1.0, alpha=0.6, zorder=2)
+                ax.add_collection(lc); H['lidar'].append(lc)
 
-            # Hit dots
             vx, vy = ex[valid], ey[valid]
             if len(vx):
-                h = ax.scatter(vx, vy, s=8, color=C_LIDAR,
-                               zorder=3, linewidths=0)
-                H['lidar'].append(h)
+                H['lidar'].append(ax.scatter(vx, vy, s=8, color=C_LIDAR,
+                                             zorder=3, linewidths=0))
 
-            # Top-k in orange
             topk = topk_from_ranges(ranges, k=TOP_K, max_range=max_range)
             if len(topk):
-                segs_k = [[[0.0, 0.0], [p[0], p[1]]] for p in topk]
-                lc_k = LineCollection(segs_k, colors=C_TOPK, linewidths=1.8,
-                                      alpha=0.85, zorder=4)
-                ax.add_collection(lc_k)
-                H['lidar'].append(lc_k)
-                h = ax.scatter(topk[:, 0], topk[:, 1], s=90, color=C_TOPK,
-                               zorder=5, linewidths=1.0, edgecolors='white')
-                H['lidar'].append(h)
+                lc_k = LineCollection([[[0., 0.], [p[0], p[1]]] for p in topk],
+                                      colors=C_TOPK, linewidths=1.8, alpha=0.85, zorder=4)
+                ax.add_collection(lc_k); H['lidar'].append(lc_k)
+                H['lidar'].append(ax.scatter(topk[:, 0], topk[:, 1], s=90,
+                                             color=C_TOPK, zorder=5,
+                                             linewidths=1.0, edgecolors='white'))
 
-        # ── Plan bearing (unit arrow) ─────────────────────────────────────
+        # ── Arrows: bearing/heading offset by +π/2 so 0 rad = FWD = UP ──
         if bearing_rad is not None:
-            H['bearing'] = _arrow((math.cos(bearing_rad), math.sin(bearing_rad)),
-                                  C_BEARING, 3.0)
+            a = bearing_rad + math.pi / 2
+            H['bearing'] = _arrow((math.cos(a), math.sin(a)), C_BEARING, 3.0)
 
-        # ── Spot odom heading (unit arrow) ────────────────────────────────
         if spot_yaw is not None:
-            H['heading'] = _arrow((math.cos(spot_yaw), math.sin(spot_yaw)),
-                                  C_HEADING, 3.0)
+            a = spot_yaw + math.pi / 2
+            H['heading'] = _arrow((math.cos(a), math.sin(a)), C_HEADING, 3.0)
 
-        # ── Action direction (unit vector) ────────────────────────────────
+        # ── Action: atan2(a1_fwd, a0_right) already gives FWD=UP ─────────
         if snap['has_action']:
             if mag > 0.02:
                 ux, uy = a0 / mag, a1 / mag
@@ -509,79 +477,74 @@ def run_desktop(state: DebugState):
                 trail = list(history)[:-1]
                 for i, (hx, hy) in enumerate(trail):
                     t = i / max(len(trail), 1)
-                    h = _arrow((hx, hy), C_TRAIL, 0.5 + 1.5 * t,
-                               alpha=0.04 + 0.2 * t)
-                    H['trail'].append(h)
+                    H['trail'].append(_arrow((hx, hy), C_TRAIL,
+                                            0.5 + 1.5 * t, alpha=0.04 + 0.2 * t))
                 H['arrow'] = _arrow((ux, uy), C_ACTION, 4.5)
             else:
                 h, = ax.plot([0], [0], 'o', color=C_WARN, ms=16, zorder=6)
                 H['arrow'] = h
-                history.append((0.0, 0.0))
+                history.append((0., 0.))
         else:
-            t = ax.text(0, 0, 'waiting\n/dgppo_action', color=C_DIM,
-                        ha='center', va='center', fontsize=11)
-            H['texts'].append(t)
+            H['texts'].append(ax.text(0, 0, 'waiting\n/dgppo_action',
+                                      color=C_DIM, ha='center', va='center', fontsize=11))
 
         # ── Info panel ────────────────────────────────────────────────────
-        tc     = {0: '#ffaa44', 1: '#44ff88', 2: '#aaaaff'}.get(terrain_id, C_TEXT)
-        tname  = TERRAIN_NAMES.get(terrain_id, f'T{terrain_id}')
-        cname  = CLUSTER_NAMES.get(mapped, f'cls_{mapped}') \
-                 if mapped is not None else '—'
+        tid   = snap['terrain_id']
+        tc    = {0: '#ffaa44', 1: '#44ff88', 2: '#aaaaff'}.get(tid, C_TEXT)
+        cname = CLUSTER_NAMES.get(mapped, f'cls_{mapped}') if mapped is not None else '—'
 
-        rows = [('TERRAIN', tname, tc), ('', '', '')]
+        rows = [('TERRAIN', TERRAIN_NAMES.get(tid, f'T{tid}'), tc), ('', '', '')]
         if raw_cluster is not None:
-            rows += [('CLUSTER raw', str(raw_cluster), '#ddddff'),
-                     ('CLUSTER mapped', f'{mapped}  {cname}', '#aaaaff')]
+            rows += [('CLUSTER raw',    str(raw_cluster),          '#ddddff'),
+                     ('CLUSTER mapped', f'{mapped}  {cname}',      '#aaaaff')]
         else:
             rows.append(('CLUSTER', 'waiting...', C_DIM))
         rows.append(('', '', ''))
 
-        ps  = snap['plan_step']
-        seq = snap['plan_sequence']
+        ps, seq = snap['plan_step'], snap['plan_sequence']
         if ps < len(seq) and current_step is not None:
             sc = CLUSTER_NAMES.get(current_step['start'], str(current_step['start']))
             nc = CLUSTER_NAMES.get(current_step['next'],  str(current_step['next']))
             rows += [('PLAN STEP', f"{ps+1} / {len(seq)}", '#ffdd88'),
-                     ('FROM', sc, '#ff9955'),
-                     ('TO',   nc, '#ff9955')]
+                     ('FROM', sc, '#ff9955'), ('TO', nc, '#ff9955')]
             if bearing_rad is not None:
                 bd = math.degrees(bearing_rad)
-                rows.append(('BEARING', f'{bd:+.1f}°', C_BEARING))
+                rows.append(('BEARING (raw)', f'{bd:+.1f}°', C_BEARING))
                 if snap['has_action'] and mag > 0.02:
                     ad   = math.degrees(math.atan2(a1, a0))
                     diff = (ad - bd + 180) % 360 - 180
                     dc   = C_LIDAR if abs(diff) < 30 else \
                            '#ffaa00' if abs(diff) < 60 else C_WARN
-                    rows.append(('ACTION ↔ BEARING', f'{diff:+.1f}°', dc))
+                    rows.append(('ACT ↔ BEAR', f'{diff:+.1f}°', dc))
         elif ps >= len(seq) and seq:
             rows.append(('PLAN', 'COMPLETE', C_LIDAR))
         else:
             rows.append(('PLAN', 'loading...', C_DIM))
         rows.append(('', '', ''))
 
-        rows += [('a[0] right/+x', f'{a0:+.4f}', C_TEXT),
-                 ('a[1]  fwd/+y',  f'{a1:+.4f}', C_TEXT),
-                 ('|a| magnitude', f'{mag:.4f}',  C_DIM)]
+        rows += [('a[0] right', f'{a0:+.4f}', C_TEXT),
+                 ('a[1] fwd',   f'{a1:+.4f}', C_TEXT),
+                 ('|a| mag',    f'{mag:.4f}',  C_DIM)]
         if spot_yaw is not None:
-            rows += [('', '', ''),
-                     ('SPOT YAW', f'{math.degrees(spot_yaw):+.1f}°', C_HEADING)]
-        rows += [('', '', ''),
-                 ('Z slice', f"[{cfg['z_lower']:.2f}, {cfg['z_upper']:.2f}]", '#bbbbbb'),
-                 ('Range',   f"[{cfg['min_range']:.1f}, {cfg['max_range']:.1f}] m", '#bbbbbb'),
-                 ('Mode', 'Intensity' if cfg['use_intensity'] else 'Z height', C_TOPK)]
+            rows += [('', '', ''), ('SPOT YAW', f'{math.degrees(spot_yaw):+.1f}°', C_HEADING)]
+        rows.append(('', '', ''))
+
+        mode_lbl = 'Intensity (visual only)' if cfg['use_intensity'] else 'Z height → clustering'
+        rows += [('Mode',     mode_lbl,                                               C_TOPK),
+                 ('Z slice',  f"[{cfg['z_lower']:.2f}, {cfg['z_upper']:.2f}]",       C_CLOUD_SLICE_Z),
+                 ('Int slice',f"[{cfg['int_lower']:.0f}, {cfg['int_upper']:.0f}]",   C_CLOUD_SLICE_I),
+                 ('Range',    f"[{cfg['min_range']:.1f}, {cfg['max_range']:.1f}] m", '#bbbbbb')]
 
         y, dy = 0.97, 0.057
         for lbl, val, clr in rows:
             if not lbl and not val:
-                y -= dy * 0.35
-                continue
+                y -= dy * 0.35; continue
             t1 = ax_info.text(0.04, y, lbl, transform=ax_info.transAxes,
                               color=C_DIM, fontsize=8.5, va='top', fontweight='bold')
             t2 = ax_info.text(0.96, y, val, transform=ax_info.transAxes,
                               color=clr, fontsize=9.0, va='top', ha='right',
                               fontfamily='monospace')
-            H['texts'].extend([t1, t2])
-            y -= dy
+            H['texts'].extend([t1, t2]); y -= dy
 
         fig.canvas.draw_idle()
 
@@ -595,13 +558,13 @@ def run_desktop(state: DebugState):
 _HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>DGPPO Debugger v2</title>
 <style>
 :root{--bg:#0d1117;--panel:#161b22;--grid:#30363d;--txt:#fff;--dim:#8b949e;
       --lidar:#00cc44;--topk:#ff6600;--act:#00cfff;--bear:#ffd700;
-      --head:#cc44ff;--warn:#ff4444;--circ:#58a6ff;}
+      --head:#cc44ff;--warn:#ff4444;--circ:#58a6ff;
+      --sliceZ:#ffcc00;--sliceI:#ff44cc;}
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--bg);color:var(--txt);font-family:monospace;
      display:flex;flex-direction:column;height:100vh;overflow:hidden}
@@ -612,7 +575,7 @@ header{padding:6px 14px;background:var(--panel);border-bottom:1px solid var(--gr
 main{display:flex;flex:1;min-height:0}
 #cw{flex:1;display:flex;align-items:center;justify-content:center;padding:6px}
 canvas{background:var(--panel);border:1px solid var(--grid)}
-#info{width:250px;background:var(--panel);border-left:1px solid var(--grid);
+#info{width:260px;background:var(--panel);border-left:1px solid var(--grid);
       overflow-y:auto;padding:10px;font-size:12px}
 .row{display:flex;justify-content:space-between;margin:2px 0}
 .row .k{color:var(--dim)}.row .v{font-weight:bold}
@@ -620,15 +583,22 @@ hr{border:none;border-top:1px solid var(--grid);margin:5px 0}
 #sliders{background:var(--panel);border-top:1px solid var(--grid);padding:8px 14px}
 #sliders h4{font-size:10px;color:var(--dim);margin-bottom:5px;letter-spacing:.05em}
 .sr{display:flex;align-items:center;gap:6px;margin:2px 0;font-size:11px}
-.sr label{width:52px;color:var(--dim)}.sr span{width:36px;text-align:right}
-input[type=range]{flex:1;accent-color:var(--topk)}
+.sr label{width:56px;color:var(--dim)}.sr span{width:40px;text-align:right}
+input[type=range]{flex:1}
+input.z{accent-color:var(--sliceZ)}
+input.i{accent-color:var(--sliceI)}
+input.r{accent-color:var(--lidar)}
+.grp{font-size:9px;text-transform:uppercase;letter-spacing:.07em;margin-bottom:3px;margin-top:4px}
 .mbtn{padding:3px 10px;font-size:10px;border:1px solid var(--grid);
       background:var(--bg);color:var(--dim);cursor:pointer;border-radius:3px;font-family:monospace}
-.mbtn.on{border-color:var(--topk);color:var(--topk);background:#200d00}
+.mbtn.on{border-color:var(--topk);color:var(--topk);background:#1a0800}
 </style>
 </head>
 <body>
-<header>DGPPO Policy Debugger v2 <span id="badge">connecting…</span></header>
+<header>DGPPO Policy Debugger v2
+  <span id="badge">connecting…</span>
+  <span style="font-size:10px;color:var(--dim)">TOP=FWD · Lidar x-flipped · Arrows 0=FWD=UP</span>
+</header>
 <main>
   <div id="cw"><canvas id="cv"></canvas></div>
   <div id="info">
@@ -649,34 +619,54 @@ input[type=range]{flex:1;accent-color:var(--topk)}
     <hr>
     <div class="row"><span class="k">SPOT YAW</span><span class="v" id="i-yw">—</span></div>
     <hr>
-    <div class="row"><span class="k">Z slice</span><span class="v" id="i-zs">—</span></div>
-    <div class="row"><span class="k">Range</span><span class="v" id="i-rg">—</span></div>
     <div class="row"><span class="k">Mode</span><span class="v" id="i-md">—</span></div>
+    <div class="row">
+      <span class="k" style="color:var(--sliceZ)">Z slice (→ cluster)</span>
+      <span class="v" id="i-zs" style="color:var(--sliceZ)">—</span>
+    </div>
+    <div class="row">
+      <span class="k" style="color:var(--sliceI)">Int slice (visual)</span>
+      <span class="v" id="i-is" style="color:var(--sliceI)">—</span>
+    </div>
+    <div class="row"><span class="k">Range</span><span class="v" id="i-rg">—</span></div>
   </div>
 </main>
 <div id="sliders">
-  <h4>LIDAR FILTER  ·  publishes → /lidar_filter_config</h4>
-  <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-start">
+  <h4>LIDAR FILTER  ·  publishes → /lidar_filter_config every 200 ms</h4>
+  <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start">
     <div>
+      <div class="grp" style="color:var(--sliceZ)">Z height  (→ clustering node)</div>
       <div class="sr"><label>Z min</label>
-        <input type="range" id="sl-zlo" min="0" max="3" step="0.01" value="0.56">
+        <input class="z" type="range" id="sl-zlo" min="0" max="3" step="0.01" value="0.56">
         <span id="v-zlo">0.56</span></div>
       <div class="sr"><label>Z max</label>
-        <input type="range" id="sl-zhi" min="0" max="3" step="0.01" value="1.26">
+        <input class="z" type="range" id="sl-zhi" min="0" max="3" step="0.01" value="1.26">
         <span id="v-zhi">1.26</span></div>
     </div>
     <div>
+      <div class="grp" style="color:var(--sliceI)">Intensity  (visual only — cluster uses Z)</div>
+      <div class="sr"><label>Int min</label>
+        <input class="i" type="range" id="sl-ilo" min="0" max="1000" step="1" value="0">
+        <span id="v-ilo">0</span></div>
+      <div class="sr"><label>Int max</label>
+        <input class="i" type="range" id="sl-ihi" min="0" max="1000" step="1" value="500">
+        <span id="v-ihi">500</span></div>
+    </div>
+    <div>
+      <div class="grp" style="color:var(--lidar)">Range</div>
       <div class="sr"><label>R min</label>
-        <input type="range" id="sl-rmin" min="0" max="2" step="0.05" value="0.5">
+        <input class="r" type="range" id="sl-rmin" min="0" max="2" step="0.05" value="0.5">
         <span id="v-rmin">0.50</span></div>
       <div class="sr"><label>R max</label>
-        <input type="range" id="sl-rmax" min="1" max="20" step="0.1" value="8">
+        <input class="r" type="range" id="sl-rmax" min="1" max="20" step="0.1" value="8">
         <span id="v-rmax">8.0</span></div>
     </div>
     <div>
-      <div style="font-size:10px;color:var(--dim);margin-bottom:4px">Cluster mode</div>
-      <button class="mbtn on" id="btn-z" onclick="setMode('z')">Z height</button>
-      <button class="mbtn"    id="btn-i" onclick="setMode('intensity')">Intensity</button>
+      <div class="grp">Slice mode</div>
+      <div style="display:flex;gap:6px;margin-top:2px">
+        <button class="mbtn on" id="btn-z" onclick="setMode('z')">Z height</button>
+        <button class="mbtn"    id="btn-i" onclick="setMode('i')">Intensity</button>
+      </div>
     </div>
   </div>
 </div>
@@ -687,58 +677,63 @@ const TC={0:'#ffaa44',1:'#44ff88',2:'#aaaaff'};
 const RM={2:1,3:1,5:2,6:2,7:2,8:2,9:2,'-1':3,4:3,0:0,1:0};
 const C={lidar:'#00cc44',topk:'#ff6600',act:'#00cfff',bear:'#ffd700',
          head:'#cc44ff',warn:'#ff4444',grid:'#30363d',dim:'#8b949e',
-         circ:'#58a6ff',bg:'#161b22',trail:'#2860cc',txt:'#fff',
-         cloudAll:'#2a2a3a',cloudSlice:'#ffcc00'};
+         circ:'#58a6ff',bg:'#161b22',trail:'#2860cc',
+         cloudAll:'rgba(42,42,58,0.7)',sliceZ:'#ffcc00',sliceI:'#ff44cc'};
 const TOP_K=8;
 let useIntensity=false, lastData=null;
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 
 function setMode(m){
-  useIntensity=(m==='intensity');
+  useIntensity=(m==='i');
   document.getElementById('btn-z').className='mbtn'+(useIntensity?'':' on');
   document.getElementById('btn-i').className='mbtn'+(useIntensity?' on':'');
   post();
 }
 function sliderVals(){
   return{z_lower:+sl('zlo'),z_upper:+sl('zhi'),
+         int_lower:+sl('ilo'),int_upper:+sl('ihi'),
          min_range:+sl('rmin'),max_range:+sl('rmax'),
          use_intensity:useIntensity};
 }
 function sl(id){return document.getElementById('sl-'+id).value}
 function post(){
   fetch('/api/set_config',{method:'POST',
-    headers:{'Content-Type':'application/json'},
-    body:JSON.stringify(sliderVals())});
+    headers:{'Content-Type':'application/json'},body:JSON.stringify(sliderVals())});
 }
-['zlo','zhi','rmin','rmax'].forEach(id=>{
+['zlo','zhi','ilo','ihi','rmin','rmax'].forEach(id=>{
   const el=document.getElementById('sl-'+id);
   const sp=document.getElementById('v-'+id);
   el.addEventListener('input',()=>{sp.textContent=parseFloat(el.value).toFixed(2);post();});
 });
 
-function tc(r,a,cx,cy,sc){return[cx+r*Math.cos(a)*sc, cy-r*Math.sin(a)*sc]}
-
-function arrow(ctx,cx,cy,ang,sc,col,lw,alpha){
-  const [ex,ey]=tc(1,ang,cx,cy,sc);
-  ctx.save();
-  ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.globalAlpha=alpha;
+/* Lidar beams: x-flip via -cos(a).  Bearing/heading arrows: +π/2 so 0=FWD=UP. */
+function lidarPt(r,a,cx,cy,sc){
+  // Negate x-component (cos) to correct for upside-down lidar mounting
+  return[cx - r*Math.cos(a)*sc, cy - r*Math.sin(a)*sc];
+}
+function polarPt(r,a,cx,cy,sc){
+  // Standard polar: x positive = RIGHT, y positive = UP (canvas inverted)
+  return[cx + r*Math.cos(a)*sc, cy - r*Math.sin(a)*sc];
+}
+function drawArrow(ang,sc,cx,cy,col,lw,alpha=1){
+  const[ex,ey]=polarPt(1,ang,cx,cy,sc);
+  ctx.save();ctx.strokeStyle=col;ctx.lineWidth=lw;ctx.globalAlpha=alpha;
   ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(ex,ey);ctx.stroke();
-  const hl=12*lw/4,dx=ex-cx,dy=ey-cy,L=Math.sqrt(dx*dx+dy*dy);
+  const hl=Math.max(10,12*lw/4),dx=ex-cx,dy=ey-cy,L=Math.hypot(dx,dy)||1;
   const ux=dx/L,uy=dy/L;
-  ctx.beginPath();
+  ctx.fillStyle=col;ctx.beginPath();
   ctx.moveTo(ex,ey);
   ctx.lineTo(ex-hl*(ux+0.4*uy),ey-hl*(uy-0.4*ux));
   ctx.lineTo(ex-hl*(ux-0.4*uy),ey-hl*(uy+0.4*ux));
-  ctx.closePath();ctx.fillStyle=col;ctx.fill();
+  ctx.closePath();ctx.fill();
   ctx.globalAlpha=1;ctx.restore();
 }
 
 function draw(d){
   const W=cv.width,H=cv.height,cx=W/2,cy=H/2;
-  const maxR=d.filter_cfg.max_range||8;
-  const sc=(W/2-22)/maxR;
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle=C.bg;ctx.fillRect(0,0,W,H);
+  const maxR=(d.filter_cfg&&d.filter_cfg.max_range)||8;
+  const sc=(W/2-24)/maxR;
+  ctx.clearRect(0,0,W,H);ctx.fillStyle=C.bg;ctx.fillRect(0,0,W,H);
 
   // Range rings
   ctx.setLineDash([4,6]);ctx.strokeStyle=C.grid;ctx.lineWidth=0.8;
@@ -760,31 +755,32 @@ function draw(d){
   ctx.strokeStyle=C.circ;ctx.lineWidth=1.8;
   ctx.beginPath();ctx.arc(cx,cy,sc,0,2*Math.PI);ctx.stroke();
 
-  // Labels
+  // Labels — physical robot directions after x-flip
   ctx.fillStyle=C.dim;ctx.font='11px monospace';ctx.textAlign='center';
-  ctx.fillText('FWD',cx,13);ctx.fillText('BCK',cx,H-3);
-  ctx.textAlign='left';ctx.fillText('RT',W-22,cy+4);
-  ctx.textAlign='right';ctx.fillText('LT',22,cy+4);
+  ctx.fillText('FWD',cx,14);ctx.fillText('BCK',cx,H-3);
+  ctx.textAlign='right';ctx.fillText('LEFT',24,cy+4);
+  ctx.textAlign='left'; ctx.fillText('RIGHT',W-24,cy+4);
   ctx.textAlign='center';
 
-  // Layer 1 — raw cloud all XY (dim gray)
+  // Layer 1: raw cloud all (x pre-negated server-side, use cx+x*sc)
   if(d.cloud_all&&d.cloud_all.length){
-    ctx.fillStyle=C.cloudAll;ctx.globalAlpha=0.7;
+    ctx.fillStyle=C.cloudAll;
     d.cloud_all.forEach(([x,y])=>{
       ctx.beginPath();ctx.arc(cx+x*sc,cy-y*sc,1.5,0,2*Math.PI);ctx.fill();
     });
-    ctx.globalAlpha=1;
   }
-  // Layer 2 — z/intensity slice (yellow)
+
+  // Layer 2: slice — Z=yellow, Intensity=magenta (x pre-negated server-side)
+  const slCol=useIntensity?C.sliceI:C.sliceZ;
   if(d.cloud_slice&&d.cloud_slice.length){
-    ctx.fillStyle=C.cloudSlice;ctx.globalAlpha=0.8;
+    ctx.fillStyle=slCol;ctx.globalAlpha=0.85;
     d.cloud_slice.forEach(([x,y])=>{
       ctx.beginPath();ctx.arc(cx+x*sc,cy-y*sc,2.5,0,2*Math.PI);ctx.fill();
     });
     ctx.globalAlpha=1;
   }
 
-  // LiDAR beams from processed_ranges
+  // Processed ranges — x-flip via lidarPt (client-computed)
   if(d.processed_ranges&&d.processed_ranges.length){
     const n=d.processed_ranges.length;
     const hits=[];
@@ -795,20 +791,20 @@ function draw(d){
     // Beams
     ctx.strokeStyle=C.lidar;ctx.lineWidth=1.1;ctx.globalAlpha=0.6;
     hits.forEach(h=>{
-      const[ex,ey]=tc(h.r,h.a,cx,cy,sc);
+      const[ex,ey]=lidarPt(h.r,h.a,cx,cy,sc);
       ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(ex,ey);ctx.stroke();
     });
     ctx.globalAlpha=1;
     // Dots
     ctx.fillStyle=C.lidar;
     hits.forEach(h=>{
-      const[ex,ey]=tc(h.r,h.a,cx,cy,sc);
+      const[ex,ey]=lidarPt(h.r,h.a,cx,cy,sc);
       ctx.beginPath();ctx.arc(ex,ey,3,0,2*Math.PI);ctx.fill();
     });
     // Top-k
     const sorted=[...hits].sort((a,b)=>a.r-b.r).slice(0,TOP_K);
     sorted.forEach(h=>{
-      const[ex,ey]=tc(h.r,h.a,cx,cy,sc);
+      const[ex,ey]=lidarPt(h.r,h.a,cx,cy,sc);
       ctx.strokeStyle=C.topk;ctx.lineWidth=1.8;ctx.globalAlpha=0.85;
       ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(ex,ey);ctx.stroke();
       ctx.globalAlpha=1;
@@ -819,52 +815,54 @@ function draw(d){
     });
   }
 
-  // Plan bearing
-  if(d.bearing_rad!=null) arrow(ctx,cx,cy,d.bearing_rad,sc,C.bear,3.5,0.9);
-  // Spot heading
-  if(d.spot_yaw!=null)    arrow(ctx,cx,cy,d.spot_yaw,sc,C.head,3.5,0.9);
-  // Action (unit vector)
+  // Arrows: bearing and heading add π/2 so raw 0 = FWD = UP
+  if(d.bearing_rad!=null) drawArrow(d.bearing_rad+Math.PI/2,sc,cx,cy,C.bear,3.5);
+  if(d.spot_yaw!=null)    drawArrow(d.spot_yaw+Math.PI/2,  sc,cx,cy,C.head,3.5);
+
+  // Action: atan2(fwd, right) already gives FWD=UP — no offset needed
   if(d.has_action){
-    const[a0,a1]=d.action,mag=Math.sqrt(a0*a0+a1*a1);
-    if(mag>0.02) arrow(ctx,cx,cy,Math.atan2(a1,a0),sc,C.act,4.5,1.0);
+    const[a0,a1]=d.action,mag=Math.hypot(a0,a1);
+    if(mag>0.02) drawArrow(Math.atan2(a1,a0),sc,cx,cy,C.act,4.5);
     else{ctx.fillStyle=C.warn;ctx.beginPath();ctx.arc(cx,cy,12,0,2*Math.PI);ctx.fill();}
   }else{
     ctx.fillStyle=C.dim;ctx.font='13px monospace';ctx.textAlign='center';
     ctx.fillText('waiting /dgppo_action',cx,cy);
   }
-  // Robot dot
+  // Robot origin dot
   ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,5,0,2*Math.PI);ctx.fill();
 }
 
-function $t(id,v,c){const e=document.getElementById(id);e.textContent=v;if(c)e.style.color=c;}
+function $t(id,v,c){const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;}
 function panel(d){
   const tid=d.terrain_id;
   $t('i-ter',TN[tid]||'T'+tid,TC[tid]||'#fff');
   const raw=d.raw_cluster;
-  $t('i-cr',raw!=null?raw:'—');
+  $t('i-cr',raw!=null?String(raw):'—');
   if(raw!=null){const m=RM[raw]??RM[String(raw)]??raw;$t('i-cm',m+' '+(CN[m]||'—'));}
   const ps=d.plan_step,seq=d.plan_sequence||[];
   if(ps<seq.length){
     const s=seq[ps];
-    $t('i-ps',(ps+1)+' / '+seq.length);
-    $t('i-pf',CN[s.start]||s.start);
-    $t('i-pt',CN[s.next]||s.next);
+    $t('i-ps',(ps+1)+' / '+seq.length,'#ffdd88');
+    $t('i-pf',CN[s.start]||String(s.start),'#ff9955');
+    $t('i-pt',CN[s.next] ||String(s.next), '#ff9955');
   }else if(seq.length>0){$t('i-ps','COMPLETE','#00cc44');}
   if(d.bearing_rad!=null)$t('i-br',(d.bearing_rad*180/Math.PI).toFixed(1)+'°');
   if(d.has_action){
-    const[a0,a1]=d.action,mag=Math.sqrt(a0*a0+a1*a1);
+    const[a0,a1]=d.action,mag=Math.hypot(a0,a1);
     $t('i-a0',a0.toFixed(4));$t('i-a1',a1.toFixed(4));$t('i-mg',mag.toFixed(4));
     if(d.bearing_rad!=null&&mag>0.02){
-      const diff=((Math.atan2(a1,a0)*180/Math.PI-(d.bearing_rad*180/Math.PI)+180)%360)-180;
+      const diff=((Math.atan2(a1,a0)*180/Math.PI-d.bearing_rad*180/Math.PI+180)%360)-180;
       $t('i-df',(diff>=0?'+':'')+diff.toFixed(1)+'°',
          Math.abs(diff)<30?'#00cc44':Math.abs(diff)<60?'#ffaa00':'#ff4444');
     }
   }
   if(d.spot_yaw!=null)$t('i-yw',(d.spot_yaw*180/Math.PI).toFixed(1)+'°');
   const cfg=d.filter_cfg||{};
-  $t('i-zs','['+((cfg.z_lower||0).toFixed(2))+', '+((cfg.z_upper||0).toFixed(2))+']');
-  $t('i-rg','['+((cfg.min_range||0).toFixed(1))+', '+((cfg.max_range||8).toFixed(1))+'] m');
-  $t('i-md',cfg.use_intensity?'Intensity':'Z height');
+  const mStr=cfg.use_intensity?'Intensity (visual)':'Z height → clustering';
+  $t('i-md',mStr,cfg.use_intensity?'#ff44cc':'#ffcc00');
+  $t('i-zs','['+Number(cfg.z_lower||0).toFixed(2)+', '+Number(cfg.z_upper||0).toFixed(2)+']');
+  $t('i-is','['+Number(cfg.int_lower||0).toFixed(0)+', '+Number(cfg.int_upper||500).toFixed(0)+']');
+  $t('i-rg','['+Number(cfg.min_range||0).toFixed(1)+', '+Number(cfg.max_range||8).toFixed(1)+'] m');
 }
 
 async function loop(){
@@ -880,7 +878,7 @@ async function loop(){
 }
 function resize(){
   const w=document.getElementById('cw');
-  const s=Math.min(w.clientWidth-12,w.clientHeight-12,680);
+  const s=Math.min(w.clientWidth-12,w.clientHeight-12,700);
   cv.width=s;cv.height=s;if(lastData)draw(lastData);
 }
 window.addEventListener('resize',resize);resize();loop();
@@ -907,10 +905,11 @@ def run_web(state: DebugState, port=WEB_PORT):
         a0, a1 = float(snap['action'][0]), float(snap['action'][1])
         current_step, bearing_rad = _bearing_for_step(snap)
 
-        # Pre-filter cloud on server; send compact arrays so the browser doesn't parse huge JSON
         cloud_all, cloud_slice = [], []
         rc = snap.get('raw_cloud')
         if rc is not None and len(rc):
+            # _apply_slice_filter returns x already negated for upside-down correction;
+            # web JS uses cx+x*sc (no additional negation)
             all_xy, slice_xy = _apply_slice_filter(rc, snap['filter_cfg'])
             if all_xy is not None and len(all_xy):
                 stride = max(1, len(all_xy) // 600)
@@ -939,7 +938,8 @@ def run_web(state: DebugState, port=WEB_PORT):
     def api_set_config():
         data = freq.get_json(silent=True) or {}
         allowed = {'z_upper', 'z_lower', 'z2_upper', 'z2_lower',
-                   'max_range', 'min_range', 'use_intensity'}
+                   'max_range', 'min_range', 'use_intensity',
+                   'int_lower', 'int_upper'}
         state.filter_cfg.set(**{k: v for k, v in data.items() if k in allowed})
         return jsonify({'ok': True})
 
