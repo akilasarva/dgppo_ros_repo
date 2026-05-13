@@ -1186,9 +1186,18 @@ def run_web(state: DebugState, port=WEB_PORT):
             filter_cfg       = snap['filter_cfg'],
         ))
 
+    # Build a "no signal" placeholder JPEG once at startup
+    if _HAS_CV:
+        _ns = np.zeros((30, 160, 3), dtype=np.uint8)
+        cv2.putText(_ns, 'no signal', (6, 21), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (70, 70, 70), 1)
+        _, _buf = cv2.imencode('.jpg', _ns, [cv2.IMWRITE_JPEG_QUALITY, 50])
+        _NO_SIGNAL = _buf.tobytes()
+    else:
+        _NO_SIGNAL = b''
+
     def _mjpeg(get_frame):
         while True:
-            jpg = get_frame()
+            jpg = get_frame() or _NO_SIGNAL
             if jpg:
                 yield (b'--frame\r\nContent-Type: image/jpeg\r\n\r\n' + jpg + b'\r\n')
             time.sleep(0.1)
@@ -1213,7 +1222,7 @@ def run_web(state: DebugState, port=WEB_PORT):
         return jsonify({'ok': True})
 
     print(f"[WEB] http://0.0.0.0:{port}  (remote: http://<robot-ip>:{port})")
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
