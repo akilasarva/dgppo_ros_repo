@@ -410,6 +410,8 @@ def run_desktop(state: DebugState):
                 try: H[k].remove()
                 except Exception: pass
             H[k] = None
+        ax3d.cla()
+        _style_3d(ax3d)
 
     def _arrow(xy_tip, color, lw, alpha=1.0):
         return ax.annotate('', xy=xy_tip, xytext=(0, 0),
@@ -448,6 +450,40 @@ def run_desktop(state: DebugState):
                 H['lidar'].append(ax.scatter(d[:, 0], d[:, 1], s=4,
                                              color=slice_color, zorder=2,
                                              linewidths=0, alpha=0.85))
+
+        # ── 3D point cloud with z-slice planes ───────────────────────────
+        if raw_cloud is not None and len(raw_cloud) > 0:
+            stride3 = max(1, len(raw_cloud) // 800)
+            pts3    = raw_cloud[::stride3]
+            x3, y3, z3 = pts3[:, 0], pts3[:, 1], pts3[:, 2]
+
+            in_band  = (z3 >= cfg['z_lower']) & (z3 <= cfg['z_upper'])
+            out_band = ~in_band
+
+            if np.any(out_band):
+                ax3d.scatter(x3[out_band], y3[out_band], z3[out_band],
+                             s=1, c='#2a2a3a', alpha=0.35, linewidths=0, depthshade=False)
+            if np.any(in_band):
+                sc = C_CLOUD_SLICE_I if cfg['use_intensity'] else C_CLOUD_SLICE_Z
+                ax3d.scatter(x3[in_band], y3[in_band], z3[in_band],
+                             s=6, c=sc, alpha=0.9, linewidths=0, depthshade=False)
+
+            # Semi-transparent planes marking z_lower and z_upper
+            lim3 = cfg['max_range']
+            xx3, yy3 = np.meshgrid([-lim3, lim3], [-lim3, lim3])
+            plane_col = C_CLOUD_SLICE_I if cfg['use_intensity'] else C_CLOUD_SLICE_Z
+            for z_val in (cfg['z_lower'], cfg['z_upper']):
+                ax3d.plot_surface(xx3, yy3, np.full_like(xx3, z_val),
+                                  color=plane_col, alpha=0.12, linewidth=0)
+
+            # Auto z limits with a small margin
+            z_margin = 0.3
+            ax3d.set_zlim(float(z3.min()) - z_margin, float(z3.max()) + z_margin)
+            ax3d.set_xlim(-lim3, lim3)
+            ax3d.set_ylim(-lim3, lim3)
+        else:
+            ax3d.text2D(0.5, 0.5, 'waiting\nfor cloud', transform=ax3d.transAxes,
+                        color=C_DIM, ha='center', va='center', fontsize=10)
 
         # ── Processed-range beams (90° CW rotation applied) ──────────────
         if ranges is not None and len(ranges) > 0:
