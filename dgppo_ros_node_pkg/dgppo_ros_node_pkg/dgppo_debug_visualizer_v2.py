@@ -344,7 +344,7 @@ def _build_figure():
         sl.valtext.set_color(C_TEXT); sl.valtext.set_fontsize(7)
         return sl
 
-    sl_zlo  = _sl(sl_axes[0], 'Z min',   0.0,    3.0,   0.56, C_CLOUD_SLICE_Z)
+    sl_zlo  = _sl(sl_axes[0], 'Z min',   -2.0,    1.0,   0.56, C_CLOUD_SLICE_Z)
     sl_zhi  = _sl(sl_axes[1], 'Z max',   0.0,    3.0,   1.26, C_CLOUD_SLICE_Z)
     sl_ilo  = _sl(sl_axes[2], 'Int min', 0.0, 1000.0,    0.0, C_CLOUD_SLICE_I)
     sl_ihi  = _sl(sl_axes[3], 'Int max', 0.0, 1000.0,  500.0, C_CLOUD_SLICE_I)

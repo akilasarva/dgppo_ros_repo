@@ -364,7 +364,7 @@ def show_bag_image_near_timestamp(bag_path, image_topic, target_ns):
         return False
     try:
         reader = rosbag2_py.SequentialReader()
-        storage_options = rosbag2_py.StorageOptions(uri=bag_path, storage_id='sqlite3')
+        storage_options = rosbag2_py.StorageOptions(uri=bag_path, storage_id='mcap')
         converter_options = rosbag2_py.ConverterOptions('', '')
         reader.open(storage_options, converter_options)
 
