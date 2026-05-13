@@ -644,6 +644,10 @@ input.r{accent-color:var(--lidar)}
 .mbtn{padding:3px 10px;font-size:10px;border:1px solid var(--grid);
       background:var(--bg);color:var(--dim);cursor:pointer;border-radius:3px;font-family:monospace}
 .mbtn.on{border-color:var(--topk);color:var(--topk);background:#1a0800}
+#elev-wrap{width:190px;background:var(--panel);border-left:1px solid var(--grid);
+           display:flex;flex-direction:column;align-items:center;padding:6px 4px}
+#elev-title{font-size:9px;color:var(--dim);text-align:center;margin-top:4px;
+            letter-spacing:.04em;text-transform:uppercase}
 </style>
 </head>
 <body>
@@ -653,6 +657,10 @@ input.r{accent-color:var(--lidar)}
 </header>
 <main>
   <div id="cw"><canvas id="cv"></canvas></div>
+  <div id="elev-wrap">
+    <canvas id="elev-cv"></canvas>
+    <div id="elev-title">Point Cloud Elevation<br>— range vs Z height —</div>
+  </div>
   <div id="info">
     <div class="row"><span class="k">TERRAIN</span><span class="v" id="i-ter">—</span></div>
     <hr>
@@ -884,6 +892,73 @@ function draw(d){
   ctx.fillStyle='#fff';ctx.beginPath();ctx.arc(cx,cy,5,0,2*Math.PI);ctx.fill();
 }
 
+function drawElev(d){
+  const ec=document.getElementById('elev-cv');
+  if(!ec)return;
+  const W=ec.width,H=ec.height,pad=22;
+  const e2=ec.getContext('2d');
+  const cfg=d.filter_cfg||{};
+  const maxR=cfg.max_range||8;
+  const zLo=cfg.z_lower??-1.26, zHi=cfg.z_upper??-0.56;
+
+  // Z axis range: span slice band plus margin
+  const zSpan=Math.max(Math.abs(zHi-zLo),0.5);
+  const zMin=zLo-zSpan*0.8, zMax=zHi+zSpan*0.8;
+
+  function toEc(range,z){
+    const ex=pad+(range/maxR)*(W-2*pad);
+    const ey=H-pad-((z-zMin)/(zMax-zMin))*(H-2*pad);
+    return[ex,ey];
+  }
+
+  // Background
+  e2.fillStyle='#161b22';e2.fillRect(0,0,W,H);
+
+  // Z-slice band fill
+  const[,y1]=toEc(0,zHi);const[,y2]=toEc(0,zLo);
+  const slCol=useIntensity?C.sliceI:C.sliceZ;
+  e2.fillStyle=useIntensity?'rgba(255,68,204,0.12)':'rgba(255,204,0,0.12)';
+  e2.fillRect(pad,y1,W-2*pad,y2-y1);
+
+  // Z-slice boundary lines
+  e2.strokeStyle=slCol;e2.lineWidth=1.5;e2.setLineDash([4,3]);
+  [zLo,zHi].forEach(z=>{
+    const[,ey]=toEc(0,z);
+    e2.beginPath();e2.moveTo(pad,ey);e2.lineTo(W-pad,ey);e2.stroke();
+  });
+  e2.setLineDash([]);
+
+  // Zero Z line
+  if(zMin<0&&zMax>0){
+    const[,ey0]=toEc(0,0);
+    e2.strokeStyle=C.grid;e2.lineWidth=0.7;
+    e2.beginPath();e2.moveTo(pad,ey0);e2.lineTo(W-pad,ey0);e2.stroke();
+  }
+
+  // Cloud points
+  if(d.cloud_elev&&d.cloud_elev.length){
+    d.cloud_elev.forEach(([range,z])=>{
+      const inBand=z>=zLo&&z<=zHi;
+      const[ex,ey]=toEc(range,z);
+      e2.fillStyle=inBand?slCol:'rgba(42,42,58,0.8)';
+      e2.beginPath();e2.arc(ex,ey,inBand?2.5:1.2,0,2*Math.PI);e2.fill();
+    });
+  }
+
+  // Axes labels
+  e2.fillStyle=C.dim;e2.font='9px monospace';
+  e2.textAlign='center';
+  e2.fillText('0',pad,H-4);e2.fillText(maxR.toFixed(0)+'m',W-pad,H-4);
+  e2.textAlign='right';
+  e2.fillText(zMax.toFixed(1),pad-2,(pad+6));
+  e2.fillText(zMin.toFixed(1),pad-2,H-pad+4);
+  // Slice labels
+  e2.fillStyle=slCol;e2.textAlign='left';
+  const[,ly1]=toEc(0,zHi);const[,ly2]=toEc(0,zLo);
+  e2.fillText('z='+zHi.toFixed(2),W-pad-2,ly1-3);
+  e2.fillText('z='+zLo.toFixed(2),W-pad-2,ly2+10);
+}
+
 function $t(id,v,c){const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;}
 function panel(d){
   const tid=d.terrain_id;
@@ -922,7 +997,7 @@ async function loop(){
   while(true){
     try{
       const r=await fetch('/api/state');
-      if(r.ok){const d=await r.json();lastData=d;draw(d);panel(d);
+      if(r.ok){const d=await r.json();lastData=d;draw(d);panel(d);drawElev(d);
                badge.textContent='live';badge.className='live';}
     }catch(e){badge.textContent='disconnected';badge.className='';}
     await new Promise(r=>setTimeout(r,80));
@@ -932,6 +1007,13 @@ function resize(){
   const w=document.getElementById('cw');
   const s=Math.min(w.clientWidth-12,w.clientHeight-12,700);
   cv.width=s;cv.height=s;if(lastData)draw(lastData);
+  const ew=document.getElementById('elev-wrap');
+  if(ew){
+    const ec=document.getElementById('elev-cv');
+    ec.width=ew.clientWidth-8;
+    ec.height=Math.min(ew.clientHeight-32,500);
+    if(lastData)drawElev(lastData);
+  }
 }
 window.addEventListener('resize',resize);resize();loop();
 </script>
