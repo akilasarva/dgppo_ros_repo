@@ -232,7 +232,7 @@ class DebugSubscriber(Node):
         sub(Float32MultiArray, '/processed_ranges',  self._cb_ranges,   10)
         sub(Float32MultiArray, '/dgppo_spot_yaw',    self._cb_spot_yaw, 10)
         sub(PointCloud2,       '/livox/lidar',       self._cb_cloud,    qos_profile_sensor_data)
-        sub(Image, '/zed/zed_node/rgb/color/rect/image', self._cb_raw_img, qos_profile_sensor_data)
+        sub(Image, '/hamilton/hamilton_zed/rgb/image_rect_color', self._cb_raw_img, qos_profile_sensor_data)
         sub(Image, '/segmentor_image',                   self._cb_hsv_img, 10)
         self._cfg_pub = self.create_publisher(Float32MultiArray, '/lidar_filter_config', 10)
         self.create_timer(0.2, self._pub_cfg)
@@ -597,14 +597,17 @@ def run_desktop(state: DebugState):
                                              color=C_TOPK, zorder=5,
                                              linewidths=1.0, edgecolors='white'))
 
-        # ── Arrows: bearing/heading offset by +π/2 so 0 rad = FWD = UP ──
-        if bearing_rad is not None:
-            a = bearing_rad + math.pi / 2
-            H['bearing'] = _arrow((math.cos(a), math.sin(a)), C_BEARING, 3.0)
+        # ── Arrows: body-frame display ─────────────────────────────────
+        # Heading: robot forward is always UP in body frame — constant, never rotates.
+        H['heading'] = _arrow((0, 1), C_HEADING, 3.0)
 
-        if spot_yaw is not None:
-            a = spot_yaw + math.pi / 2
-            H['heading'] = _arrow((math.cos(a), math.sin(a)), C_HEADING, 3.0)
+        # Bearing: world-frame bearing rotated into body frame by subtracting spot_yaw.
+        # At yaw=0 (initial heading), bearing=0 draws straight up (FWD).
+        # As the robot turns, the arrow rotates to show the relative direction.
+        if bearing_rad is not None:
+            yaw_off = spot_yaw if spot_yaw is not None else 0.0
+            a = (bearing_rad - yaw_off) + math.pi / 2
+            H['bearing'] = _arrow((math.cos(a), math.sin(a)), C_BEARING, 3.0)
 
         # ── Action: atan2(a1_fwd, a0_right) already gives FWD=UP ─────────
         if snap['has_action']:
@@ -1008,9 +1011,14 @@ function draw(d){
     });
   }
 
-  // Arrows: bearing and heading add π/2 so raw 0 = FWD = UP
-  if(d.bearing_rad!=null) drawArrow(d.bearing_rad+Math.PI/2,sc,cx,cy,C.bear,3.5);
-  if(d.spot_yaw!=null)    drawArrow(d.spot_yaw+Math.PI/2,  sc,cx,cy,C.head,3.5);
+  // Arrows: body-frame display.
+  // Heading: robot forward is always UP — constant, never rotates.
+  drawArrow(Math.PI/2, sc, cx, cy, C.head, 3.5);
+  // Bearing: world-frame bearing rotated into body frame by subtracting spot_yaw.
+  if(d.bearing_rad!=null){
+    const yawOff=d.spot_yaw!=null?d.spot_yaw:0;
+    drawArrow(d.bearing_rad-yawOff+Math.PI/2,sc,cx,cy,C.bear,3.5);
+  }
 
   // Action: atan2(fwd, right) already gives FWD=UP — no offset needed
   if(d.has_action){
