@@ -29,6 +29,7 @@ import matplotlib.patches as mpatches
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Slider, RadioButtons
 from matplotlib.collections import LineCollection
+from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — registers 3d projection
 
 import rclpy
 from rclpy.node import Node
@@ -288,12 +289,25 @@ def _apply_slice_filter(raw_cloud, cfg):
 
 # ── Desktop visualizer ────────────────────────────────────────────────────────
 
+def _style_3d(ax3d):
+    ax3d.set_facecolor(C_PANEL)
+    for pane in (ax3d.xaxis.pane, ax3d.yaxis.pane, ax3d.zaxis.pane):
+        pane.fill = False
+        pane.set_edgecolor(C_GRID)
+    ax3d.tick_params(colors=C_DIM, labelsize=6)
+    ax3d.xaxis.label.set_color(C_DIM); ax3d.xaxis.label.set_fontsize(7)
+    ax3d.yaxis.label.set_color(C_DIM); ax3d.yaxis.label.set_fontsize(7)
+    ax3d.zaxis.label.set_color(C_DIM); ax3d.zaxis.label.set_fontsize(7)
+    ax3d.set_xlabel('X'); ax3d.set_ylabel('Y'); ax3d.set_zlabel('Z')
+    ax3d.set_title('Point Cloud 3D · yellow = z slice', color=C_TEXT, fontsize=8)
+    ax3d.view_init(elev=20, azim=-60)
+
 def _build_figure():
-    fig = plt.figure(figsize=(16, 9), facecolor=C_BG)
+    fig = plt.figure(figsize=(22, 9), facecolor=C_BG)
     fig.suptitle('DGPPO Policy Debugger  v2', color=C_TEXT, fontsize=14,
                  y=0.985, fontweight='bold')
 
-    ax = fig.add_axes([0.03, 0.17, 0.57, 0.79])
+    ax = fig.add_axes([0.02, 0.17, 0.37, 0.79])
     ax.set_facecolor(C_PANEL)
     lim = 9.5
     ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_aspect('equal')
@@ -328,7 +342,10 @@ def _build_figure():
     ax.legend(handles=leg, loc='lower right', facecolor=C_BG,
               edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=7.5)
 
-    ax_info = fig.add_axes([0.63, 0.17, 0.35, 0.79])
+    ax3d = fig.add_axes([0.42, 0.17, 0.24, 0.79], projection='3d')
+    _style_3d(ax3d)
+
+    ax_info = fig.add_axes([0.69, 0.17, 0.29, 0.79])
     ax_info.set_facecolor(C_PANEL); ax_info.axis('off')
 
     # Slider row — 6 sliders + mode toggle
@@ -356,11 +373,11 @@ def _build_figure():
 
     sliders = dict(zlo=sl_zlo, zhi=sl_zhi, ilo=sl_ilo, ihi=sl_ihi,
                    rmin=sl_rmin, rmax=sl_rmax, mode=rb_mode)
-    return fig, ax, ax_info, sliders
+    return fig, ax, ax3d, ax_info, sliders
 
 
 def run_desktop(state: DebugState):
-    fig, ax, ax_info, sliders = _build_figure()
+    fig, ax, ax3d, ax_info, sliders = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
     H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
          'trail': [], 'texts': []}
