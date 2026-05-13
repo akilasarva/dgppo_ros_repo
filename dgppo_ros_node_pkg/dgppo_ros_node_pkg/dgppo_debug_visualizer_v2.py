@@ -205,13 +205,17 @@ class DebugSubscriber(Node):
     def _cb_cloud(self, msg: PointCloud2):
         try:
             fields = {f.name for f in msg.fields}
-            want   = ['x', 'y', 'z'] + (['intensity'] if 'intensity' in fields else [])
-            pts    = np.array(list(read_points(msg, field_names=want, skip_nans=True)),
-                              dtype=np.float32)
-            if pts.ndim != 2 or pts.shape[0] == 0:
+            has_i  = 'intensity' in fields
+            want   = ['x', 'y', 'z'] + (['intensity'] if has_i else [])
+            raw    = list(read_points(msg, field_names=want, skip_nans=True))
+            if not raw:
                 return
-            if pts.shape[1] == 3:
-                pts = np.hstack([pts, np.zeros((len(pts), 1), dtype=np.float32)])
+            s = np.array(raw)  # structured array with named fields
+            x = s['x'].astype(np.float32)
+            y = s['y'].astype(np.float32)
+            z = s['z'].astype(np.float32)
+            i = s['intensity'].astype(np.float32) if has_i else np.zeros(len(x), np.float32)
+            pts = np.column_stack([x, y, z, i])
             stride = max(1, len(pts) // 5000)
             self.state.set_raw_cloud(pts[::stride])
         except Exception:
