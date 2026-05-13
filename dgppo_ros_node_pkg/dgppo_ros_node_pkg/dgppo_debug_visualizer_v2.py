@@ -29,7 +29,11 @@ import matplotlib.patches as mpatches
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Slider, RadioButtons
 from matplotlib.collections import LineCollection
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — registers 3d projection
+try:
+    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — registers 3d projection
+    _HAS_3D = True
+except Exception:
+    _HAS_3D = False
 
 import rclpy
 from rclpy.node import Node
@@ -342,8 +346,11 @@ def _build_figure():
     ax.legend(handles=leg, loc='lower right', facecolor=C_BG,
               edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=7.5)
 
-    ax3d = fig.add_axes([0.42, 0.17, 0.24, 0.79], projection='3d')
-    _style_3d(ax3d)
+    if _HAS_3D:
+        ax3d = fig.add_axes([0.42, 0.17, 0.24, 0.79], projection='3d')
+        _style_3d(ax3d)
+    else:
+        ax3d = None
 
     ax_info = fig.add_axes([0.69, 0.17, 0.29, 0.79])
     ax_info.set_facecolor(C_PANEL); ax_info.axis('off')
@@ -410,8 +417,9 @@ def run_desktop(state: DebugState):
                 try: H[k].remove()
                 except Exception: pass
             H[k] = None
-        ax3d.cla()
-        _style_3d(ax3d)
+        if ax3d is not None:
+            ax3d.cla()
+            _style_3d(ax3d)
 
     def _arrow(xy_tip, color, lw, alpha=1.0):
         return ax.annotate('', xy=xy_tip, xytext=(0, 0),
@@ -452,7 +460,7 @@ def run_desktop(state: DebugState):
                                              linewidths=0, alpha=0.85))
 
         # ── 3D point cloud with z-slice planes ───────────────────────────
-        if raw_cloud is not None and len(raw_cloud) > 0:
+        if ax3d is not None and raw_cloud is not None and len(raw_cloud) > 0:
             stride3 = max(1, len(raw_cloud) // 800)
             pts3    = raw_cloud[::stride3]
             x3, y3, z3 = pts3[:, 0], pts3[:, 1], pts3[:, 2]
@@ -481,7 +489,7 @@ def run_desktop(state: DebugState):
             ax3d.set_zlim(float(z3.min()) - z_margin, float(z3.max()) + z_margin)
             ax3d.set_xlim(-lim3, lim3)
             ax3d.set_ylim(-lim3, lim3)
-        else:
+        elif ax3d is not None:
             ax3d.text2D(0.5, 0.5, 'waiting\nfor cloud', transform=ax3d.transAxes,
                         color=C_DIM, ha='center', va='center', fontsize=10)
 
