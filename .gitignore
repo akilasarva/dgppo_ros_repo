@@ -6,3 +6,4 @@ build/
 log/
 install/
 *.env
+dgppo_venv/
