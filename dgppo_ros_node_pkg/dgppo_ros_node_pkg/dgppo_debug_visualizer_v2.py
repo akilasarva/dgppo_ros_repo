@@ -232,7 +232,7 @@ class DebugSubscriber(Node):
         sub(Float32MultiArray, '/processed_ranges',  self._cb_ranges,   10)
         sub(Float32MultiArray, '/dgppo_spot_yaw',    self._cb_spot_yaw, 10)
         sub(PointCloud2,       '/livox/lidar',       self._cb_cloud,    qos_profile_sensor_data)
-        sub(Image, '/hamilton/hamilton_zed/rgb/image_rect_color', self._cb_raw_img, qos_profile_sensor_data)
+        sub(Image, '/hamilton_zed2i/zed_node/rgb/image_rect_color', self._cb_raw_img, qos_profile_sensor_data)
         sub(Image, '/segmentor_image',                   self._cb_hsv_img, 10)
         self._cfg_pub = self.create_publisher(Float32MultiArray, '/lidar_filter_config', 10)
         self.create_timer(0.2, self._pub_cfg)
@@ -743,10 +743,14 @@ input.r{accent-color:var(--lidar)}
            display:flex;flex-direction:column;padding:4px}
 #three-wrap{flex:1;width:100%;min-height:0;overflow:hidden}
 #cameras{display:flex;gap:8px;background:var(--panel);border-top:1px solid var(--grid);
-         padding:4px 10px;flex-shrink:0;overflow:hidden}
+         padding:4px 10px;height:180px;flex-shrink:0;overflow:hidden}
 .cam-wrap{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
 .cam-lbl{font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
-.cam-wrap img{width:100%;height:170px;object-fit:contain;border:1px solid var(--grid);background:#000}
+.cam-wrap img{width:100%;height:100%;object-fit:contain;border:1px solid var(--grid);background:#000}
+.rsz-h{width:5px;cursor:col-resize;background:var(--grid);flex-shrink:0;transition:background .15s}
+.rsz-h:hover,.rsz-h.rsz-act{background:var(--act)}
+.rsz-v{height:5px;cursor:row-resize;background:var(--grid);flex-shrink:0;transition:background .15s}
+.rsz-v:hover,.rsz-v.rsz-act{background:var(--act)}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
@@ -759,9 +763,11 @@ input.r{accent-color:var(--lidar)}
 </header>
 <main>
   <div id="cw"><canvas id="cv"></canvas></div>
+  <div class="rsz-h" id="rsz1"></div>
   <div id="elev-wrap">
     <div id="three-wrap"></div>
   </div>
+  <div class="rsz-h" id="rsz2"></div>
   <div id="info">
     <div class="row"><span class="k">TERRAIN</span><span class="v" id="i-ter">—</span></div>
     <hr>
@@ -792,6 +798,7 @@ input.r{accent-color:var(--lidar)}
     <div class="row"><span class="k">Range</span><span class="v" id="i-rg">—</span></div>
   </div>
 </main>
+<div class="rsz-v" id="rsz3"></div>
 <div id="cameras">
   <div class="cam-wrap">
     <div class="cam-lbl">RAW ZED</div>
@@ -802,6 +809,7 @@ input.r{accent-color:var(--lidar)}
     <img src="/stream/hsv" onerror="this.style.opacity='0.3'">
   </div>
 </div>
+<div class="rsz-v" id="rsz4"></div>
 <div id="sliders">
   <h4>LIDAR FILTER  ·  publishes → /lidar_filter_config every 200 ms</h4>
   <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start">
@@ -845,7 +853,7 @@ input.r{accent-color:var(--lidar)}
 const CN={0:'open_space',1:'approach_bridge',2:'on_bridge',3:'exit_bridge'};
 const TN={0:'Road',1:'Grass',2:'Sidewalk'};
 const TC={0:'#ffaa44',1:'#44ff88',2:'#aaaaff'};
-const RM={2:1,3:1,5:2,6:2,7:2,8:2,9:2,'-1':3,4:3,0:0,1:0};
+const RM={2:1,3:1,5:2,6:2,7:2,8:2,9:2,'-1':3,4:3,11:1,0:0,1:0};
 const DARK={lidar:'#00cc44',topk:'#ff6600',act:'#00cfff',bear:'#ffd700',
             head:'#cc44ff',warn:'#ff4444',grid:'#30363d',dim:'#8b949e',
             circ:'#58a6ff',bg:'#161b22',trail:'#2860cc',
@@ -1198,6 +1206,38 @@ function initSliders(cfg){
     if(el&&cfg[key]!=null){el.value=cfg[key];sp.textContent=parseFloat(cfg[key]).toFixed(2);}
   }
 }
+function makeSplitter(el,a,b,axis){
+  el.addEventListener('mousedown',function(e){
+    e.preventDefault();
+    el.classList.add('rsz-act');
+    var start=axis==='h'?e.clientX:e.clientY;
+    var aSize=axis==='h'?a.offsetWidth:a.offsetHeight;
+    var bSize=axis==='h'?b.offsetWidth:b.offsetHeight;
+    function onMove(ev){
+      var d=(axis==='h'?ev.clientX:ev.clientY)-start;
+      a.style.flex='none';
+      if(axis==='h'){
+        a.style.width=Math.max(80,aSize+d)+'px';
+        b.style.width=Math.max(80,bSize-d)+'px';
+      } else {
+        a.style.height=Math.max(80,aSize+d)+'px';
+        b.style.height=Math.max(40,bSize-d)+'px';
+      }
+      resize();
+    }
+    function onUp(){
+      el.classList.remove('rsz-act');
+      document.removeEventListener('mousemove',onMove);
+      document.removeEventListener('mouseup',onUp);
+    }
+    document.addEventListener('mousemove',onMove);
+    document.addEventListener('mouseup',onUp);
+  });
+}
+makeSplitter(document.getElementById('rsz1'),document.getElementById('cw'),document.getElementById('elev-wrap'),'h');
+makeSplitter(document.getElementById('rsz2'),document.getElementById('elev-wrap'),document.getElementById('info'),'h');
+makeSplitter(document.getElementById('rsz3'),document.querySelector('main'),document.getElementById('cameras'),'v');
+makeSplitter(document.getElementById('rsz4'),document.getElementById('cameras'),document.getElementById('sliders'),'v');
 window.addEventListener('resize',resize);
 fetch('/api/state').then(r=>r.json()).then(d=>{initSliders(d.filter_cfg);resize();loop();}).catch(()=>{resize();loop();});
 </script>
