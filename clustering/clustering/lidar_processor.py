@@ -45,16 +45,15 @@ def get_ranges_from_points(points, config):
     if points.size == 0:
         return np.full(config['num_ranges'], config['max_lidar_range'])
 
-    # Filter points by altitude or intensity
+    # Filter points by altitude (always) and optionally intensity
+    slice_mask_1 = (points[:, 2] >= config['z_threshold_lower']) & \
+                   (points[:, 2] <= config['z_threshold_upper'])
+    slice_mask_2 = (points[:, 2] >= config['z_threshold_lower_2']) & \
+                   (points[:, 2] <= config['z_threshold_upper_2'])
+    combined_mask = slice_mask_1 | slice_mask_2
     if config.get('use_intensity', False):
         intensity = points[:, 3]
-        combined_mask = (intensity >= config['int_lower']) & (intensity <= config['int_upper'])
-    else:
-        slice_mask_1 = (points[:, 2] >= config['z_threshold_lower']) & \
-                       (points[:, 2] <= config['z_threshold_upper'])
-        slice_mask_2 = (points[:, 2] >= config['z_threshold_lower_2']) & \
-                       (points[:, 2] <= config['z_threshold_upper_2'])
-        combined_mask = slice_mask_1 | slice_mask_2
+        combined_mask &= (intensity >= config['int_lower']) & (intensity <= config['int_upper'])
 
     points_z_filtered = points[combined_mask]
 

@@ -63,10 +63,10 @@ WEB_PORT    = 8765
 TERRAIN_NAMES = {0: "Road", 1: "Grass", 2: "Sidewalk"}
 CLUSTER_NAMES = {0: "open_space", 1: "approach_bridge", 2: "on_bridge", 3: "exit_bridge"}
 RAW_TO_MAPPED = {
-    **{k: 1 for k in [2, 3]},
+    **{k: 0 for k in [0, 1]},
+    **{k: 1 for k in [2, 3, 11]},
     **{k: 2 for k in [5, 6, 7, 8, 9]},
     **{k: 3 for k in [-1, 4]},
-    **{k: 0 for k in [0, 1]},
 }
 
 # Outdoor palette
@@ -353,14 +353,13 @@ def _apply_slice_filter(raw_cloud, cfg):
     dist       = np.hypot(x, y)
     range_mask = (dist >= cfg['min_range']) & (dist <= cfg['max_range'])
 
+    band1    = (z >= cfg['z_lower'])  & (z <= cfg['z_upper'])
+    band2_on = cfg['z2_upper'] > cfg['z2_lower']
+    band2    = ((z >= cfg['z2_lower']) & (z <= cfg['z2_upper'])
+                if band2_on else np.zeros(len(z), dtype=bool))
+    band_mask = band1 | band2
     if cfg['use_intensity']:
-        band_mask = (intensity >= cfg['int_lower']) & (intensity <= cfg['int_upper'])
-    else:
-        band1    = (z >= cfg['z_lower'])  & (z <= cfg['z_upper'])
-        band2_on = cfg['z2_upper'] > cfg['z2_lower']
-        band2    = ((z >= cfg['z2_lower']) & (z <= cfg['z2_upper'])
-                    if band2_on else np.zeros(len(z), dtype=bool))
-        band_mask = band1 | band2
+        band_mask &= (intensity >= cfg['int_lower']) & (intensity <= cfg['int_upper'])
 
     # x-flip (upside-down mount) then 90° CW rotation: net result is (y_raw, x_raw)
     xy_flipped = np.column_stack([y, x])

@@ -213,14 +213,14 @@ class DGPPOROSNode(Node):
         # Maps raw classifier output → canonical bridge cluster IDs:
         #   0 = open_space, 1 = approach_bridge_0, 2 = on_bridge_0, 3 = exit_bridge_0
         self.get_logger().info(f"cluster id: {cluster_id}")
-        if cluster_id in [2, 3]:
-            return 3  # exit_bridge_0
+        if cluster_id in [0, 1]:
+            return 0  # open_space
+        elif cluster_id in [2, 3, 11]:
+            return 1  # approach_bridge_0
         elif cluster_id in [5, 6, 7, 8, 9]:
             return 2  # on_bridge_0
-        elif cluster_id in [-1, 4, 11]:
-            return 1  # approach_bridge_0
-        elif cluster_id in [0, 1]:
-            return 0  # open_space
+        elif cluster_id in [-1, 4]:
+            return 3  # exit_bridge_0
         else:
             return cluster_id
 
