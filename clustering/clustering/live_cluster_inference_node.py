@@ -101,7 +101,10 @@ class LiveClusterInferenceNode(Node):
             "z_threshold_upper": self.z_threshold_upper,
             "z_threshold_lower": self.z_threshold_lower,
             "z_threshold_upper_2": self.z_threshold_upper_2,
-            "z_threshold_lower_2": self.z_threshold_lower_2
+            "z_threshold_lower_2": self.z_threshold_lower_2,
+            "use_intensity": False,
+            "int_lower": 0.0,
+            "int_upper": 255.0,
         }
         
         path_prefix = ""
@@ -222,7 +225,7 @@ class LiveClusterInferenceNode(Node):
             return -2
 
     def _cb_filter_cfg(self, msg: Float32MultiArray):
-        # Message layout (from visualizer): [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range, use_intensity]
+        # Message layout: [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range, use_intensity, int_lower, int_upper]
         if len(msg.data) < 6:
             return
         self.config['z_threshold_upper']   = float(msg.data[0])
@@ -232,8 +235,14 @@ class LiveClusterInferenceNode(Node):
         self.config['max_lidar_range']     = float(msg.data[4])
         self.config['min_lidar_range']     = float(msg.data[5])
         self.max_lidar_range               = float(msg.data[4])  # kept in sync for normalization
+        if len(msg.data) >= 7:
+            self.config['use_intensity'] = bool(msg.data[6])
+        if len(msg.data) >= 9:
+            self.config['int_lower'] = float(msg.data[7])
+            self.config['int_upper'] = float(msg.data[8])
         self.get_logger().info(
-            f"Filter updated: z=[{msg.data[1]:.2f},{msg.data[0]:.2f}]  "
+            f"Filter updated: mode={'intensity' if self.config['use_intensity'] else 'z-height'}  "
+            f"z=[{msg.data[1]:.2f},{msg.data[0]:.2f}]  "
             f"r=[{msg.data[5]:.2f},{msg.data[4]:.2f}]")
 
     def _override_cb(self, msg: Int16):
@@ -250,12 +259,17 @@ class LiveClusterInferenceNode(Node):
         # self.get_logger().info(f"Received PointCloud2 with {msg.width * msg.height} points.")
 
         try:
-            points_gen = read_points(msg, field_names=("x", "y", "z"))
-            points_structured = np.asarray(list(points_gen), dtype=[('x', np.float32), ('y', np.float32), ('z', np.float32)])
+            has_intensity = any(f.name == 'intensity' for f in msg.fields)
+            field_names = ("x", "y", "z", "intensity") if has_intensity else ("x", "y", "z")
+            points_gen = read_points(msg, field_names=field_names)
+            dtype = ([('x', np.float32), ('y', np.float32), ('z', np.float32), ('intensity', np.float32)]
+                     if has_intensity else
+                     [('x', np.float32), ('y', np.float32), ('z', np.float32)])
+            points_structured = np.asarray(list(points_gen), dtype=dtype)
         except Exception as e:
             self.get_logger().error(f"Error reading points from PointCloud2: {e}")
             return
-        
+
         if points_structured.shape[0] == 0:
             # self.get_logger().warn("Received empty PointCloud2 message. Publishing -1 (Noise).")
             label_msg = Int16()
@@ -263,7 +277,12 @@ class LiveClusterInferenceNode(Node):
             self.publisher_.publish(label_msg)
             return
 
-        points_np = np.vstack([points_structured['x'], points_structured['y'], points_structured['z']]).T
+        intensity_col = (points_structured['intensity'].astype(np.float32)
+                         if has_intensity else np.zeros(len(points_structured), np.float32))
+        points_np = np.column_stack([
+            points_structured['x'], points_structured['y'],
+            points_structured['z'], intensity_col,
+        ])
         
         # Use the unified pre-processing function to generate the 1D range array
         ranges_binned = get_ranges_from_points(points_np, self.config)
