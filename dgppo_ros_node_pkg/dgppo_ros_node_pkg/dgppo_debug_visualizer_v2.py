@@ -14,8 +14,8 @@ Coordinate conventions (after corrections):
   - Bearing/heading arrows: angle 0 = forward = UP  (stored as raw radians, +π/2 applied at draw)
   - Action arrow: atan2(a1_fwd, a0_right); forward → UP, right → RIGHT — already correct
 
-Z-height mode  → yellow slice; same z-band sent to clustering node → affects actual clustering
-Intensity mode → magenta slice; visual-only; clustering node still uses Z-height
+Z-height mode  → yellow slice; z-band sent to clustering node → affects actual clustering
+Intensity mode → magenta slice; z-band AND intensity band sent to clustering node → affects actual clustering
 """
 
 import sys, os, json, math, threading, argparse, time
@@ -27,7 +27,7 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.animation import FuncAnimation
-from matplotlib.widgets import Slider, RadioButtons
+from matplotlib.widgets import Slider, RadioButtons, TextBox
 from matplotlib.collections import LineCollection
 try:
     from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 — registers 3d projection
@@ -102,9 +102,8 @@ class FilterConfig:
         self.max_range = 8.0
         self.min_range = 0.5
         self.use_intensity = False
-        # Intensity bounds — visualizer slice only; clustering always uses Z
         self.int_lower = 0.0
-        self.int_upper = 500.0
+        self.int_upper = 255.0
         self._load()
 
     def _load(self):
@@ -280,13 +279,13 @@ class DebugSubscriber(Node):
     def _pub_cfg(self):
         cfg = self.state.filter_cfg.get()
         m = Float32MultiArray()
-        # Matches clustering node's _cb_filter_cfg layout:
-        # [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range, use_intensity]
+        # Layout: [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range, use_intensity, int_lower, int_upper]
         m.data = [
             cfg['z_upper'], cfg['z_lower'],
             cfg['z2_upper'], cfg['z2_lower'],
             cfg['max_range'], cfg['min_range'],
             float(cfg['use_intensity']),
+            cfg['int_lower'], cfg['int_upper'],
         ]
         self._cfg_pub.publish(m)
 
@@ -431,7 +430,7 @@ def _build_figure():
     ax_info.set_facecolor(C_PANEL); ax_info.axis('off')
 
     # Slider row — 6 sliders + mode toggle
-    s_h, s_y, g = 0.028, 0.020, 0.087
+    s_h, s_y, g = 0.028, 0.022, 0.087
     sl_axes = [fig.add_axes([0.03 + i * g, s_y, 0.075, s_h], facecolor=C_PANEL)
                for i in range(6)]
     ax_mode = fig.add_axes([0.03 + 6 * g, s_y - 0.012, 0.10, s_h + 0.04], facecolor=C_PANEL)
@@ -442,29 +441,51 @@ def _build_figure():
         sl.valtext.set_color(C_TEXT); sl.valtext.set_fontsize(7)
         return sl
 
-    sl_zlo  = _sl(sl_axes[0], 'Z min',   -3.0,    1.0,  -1.26, C_CLOUD_SLICE_Z)
-    sl_zhi  = _sl(sl_axes[1], 'Z max',   -3.0,    3.0,  -0.56, C_CLOUD_SLICE_Z)
-    sl_ilo  = _sl(sl_axes[2], 'Int min', 0.0, 1000.0,    0.0, C_CLOUD_SLICE_I)
-    sl_ihi  = _sl(sl_axes[3], 'Int max', 0.0, 1000.0,  500.0, C_CLOUD_SLICE_I)
-    sl_rmin = _sl(sl_axes[4], 'R min',   0.0,    2.0,   0.50, C_LIDAR)
-    sl_rmax = _sl(sl_axes[5], 'R max',   1.0,   20.0,   8.00, C_LIDAR)
+    sl_zlo  = _sl(sl_axes[0], 'Z min',  -3.0,   1.0,  -0.50, C_CLOUD_SLICE_Z)
+    sl_zhi  = _sl(sl_axes[1], 'Z max',  -1.0,   3.0,   0.15, C_CLOUD_SLICE_Z)
+    sl_ilo  = _sl(sl_axes[2], 'Int min', 0.0, 255.0,   0.0,  C_CLOUD_SLICE_I)
+    sl_ihi  = _sl(sl_axes[3], 'Int max', 0.0, 255.0, 255.0,  C_CLOUD_SLICE_I)
+    sl_rmin = _sl(sl_axes[4], 'R min',   0.0,   2.0,   0.50, C_LIDAR)
+    sl_rmax = _sl(sl_axes[5], 'R max',   1.0,  20.0,   8.00, C_LIDAR)
 
     rb_mode = RadioButtons(ax_mode, ('Z height', 'Intensity'), activecolor=C_TOPK)
     for lbl in rb_mode.labels:
         lbl.set_color(C_TEXT); lbl.set_fontsize(7.5)
 
-    sliders = dict(zlo=sl_zlo, zhi=sl_zhi, ilo=sl_ilo, ihi=sl_ihi,
-                   rmin=sl_rmin, rmax=sl_rmax, mode=rb_mode)
-    return fig, ax, ax3d, ax_info, sliders
+    # TextBox row for direct value entry — press Enter to apply
+    tb_y, tb_h = 0.002, 0.018
+    tb_axes = [fig.add_axes([0.03 + i * g, tb_y, 0.075, tb_h], facecolor='#1a1a2a')
+               for i in range(6)]
+
+    def _tb(axes, init):
+        tb = TextBox(axes, '', initial=f'{init:.2f}', color='#1a1a2a', hovercolor='#2a2a3a')
+        tb.text_disp.set_color(C_TEXT)
+        tb.text_disp.set_fontsize(7)
+        for sp in axes.spines.values():
+            sp.set_color(C_GRID)
+        return tb
+
+    tb_zlo  = _tb(tb_axes[0], -0.50)
+    tb_zhi  = _tb(tb_axes[1],  0.15)
+    tb_ilo  = _tb(tb_axes[2],  0.0)
+    tb_ihi  = _tb(tb_axes[3], 255.0)
+    tb_rmin = _tb(tb_axes[4],  0.50)
+    tb_rmax = _tb(tb_axes[5],  8.00)
+
+    sliders   = dict(zlo=sl_zlo, zhi=sl_zhi, ilo=sl_ilo, ihi=sl_ihi,
+                     rmin=sl_rmin, rmax=sl_rmax, mode=rb_mode)
+    textboxes = dict(zlo=tb_zlo, zhi=tb_zhi, ilo=tb_ilo, ihi=tb_ihi,
+                     rmin=tb_rmin, rmax=tb_rmax)
+    return fig, ax, ax3d, ax_info, sliders, textboxes
 
 
 def run_desktop(state: DebugState):
-    fig, ax, ax3d, ax_info, sliders = _build_figure()
+    fig, ax, ax3d, ax_info, sliders, textboxes = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
     H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
          'trail': [], 'texts': []}
 
-    def _apply_sliders(_=None):
+    def _apply_filter_cfg():
         state.filter_cfg.set(
             z_lower       = sliders['zlo'].val,
             z_upper       = sliders['zhi'].val,
@@ -475,8 +496,22 @@ def run_desktop(state: DebugState):
             use_intensity = (sliders['mode'].value_selected == 'Intensity'),
         )
 
+    def _apply_sliders(_=None):
+        _apply_filter_cfg()
+        for k in ('zlo', 'zhi', 'ilo', 'ihi', 'rmin', 'rmax'):
+            textboxes[k].set_val(f'{sliders[k].val:.2f}')
+
+    def _apply_tb(key, val):
+        try:
+            v = float(val)
+            sl = sliders[key]
+            sl.set_val(max(sl.valmin, min(sl.valmax, v)))
+        except ValueError:
+            textboxes[key].set_val(f'{sliders[key].val:.2f}')
+
     for key in ('zlo', 'zhi', 'ilo', 'ihi', 'rmin', 'rmax'):
         sliders[key].on_changed(_apply_sliders)
+        textboxes[key].on_submit(lambda val, k=key: _apply_tb(k, val))
     sliders['mode'].on_clicked(_apply_sliders)
 
     def _rm(lst):
@@ -667,7 +702,7 @@ def run_desktop(state: DebugState):
             rows += [('', '', ''), ('SPOT YAW', f'{math.degrees(spot_yaw):+.1f}°', C_HEADING)]
         rows.append(('', '', ''))
 
-        mode_lbl = 'Intensity (visual only)' if cfg['use_intensity'] else 'Z height → clustering'
+        mode_lbl = 'Intensity + Z → clustering' if cfg['use_intensity'] else 'Z height → clustering'
         rows += [('Mode',     mode_lbl,                                               C_TOPK),
                  ('Z slice',  f"[{cfg['z_lower']:.2f}, {cfg['z_upper']:.2f}]",       C_CLOUD_SLICE_Z),
                  ('Int slice',f"[{cfg['int_lower']:.0f}, {cfg['int_upper']:.0f}]",   C_CLOUD_SLICE_I),
@@ -737,6 +772,9 @@ input.r{accent-color:var(--lidar)}
 .mbtn{padding:3px 10px;font-size:10px;border:1px solid var(--grid);
       background:var(--bg);color:var(--dim);cursor:pointer;border-radius:3px;font-family:monospace}
 .mbtn.on{border-color:var(--topk);color:var(--topk);background:#1a0800}
+.num-in{width:52px;background:var(--panel);color:var(--txt);border:1px solid var(--grid);
+        font-family:monospace;font-size:11px;padding:1px 3px;border-radius:2px;text-align:right}
+.num-in:focus{outline:none;border-color:var(--circ)}
 #elev-wrap{width:260px;background:var(--panel);border-left:1px solid var(--grid);
            display:flex;flex-direction:column;padding:4px}
 #three-wrap{flex:1;width:100%;min-height:0;overflow:hidden}
@@ -790,7 +828,7 @@ input.r{accent-color:var(--lidar)}
       <span class="v" id="i-zs" style="color:var(--sliceZ)">—</span>
     </div>
     <div class="row">
-      <span class="k" style="color:var(--sliceI)">Int slice (visual)</span>
+      <span class="k" style="color:var(--sliceI)">Int slice (→ cluster)</span>
       <span class="v" id="i-is" style="color:var(--sliceI)">—</span>
     </div>
     <div class="row"><span class="k">Range</span><span class="v" id="i-rg">—</span></div>
@@ -814,29 +852,29 @@ input.r{accent-color:var(--lidar)}
     <div>
       <div class="grp" style="color:var(--sliceZ)">Z height  (→ clustering node)</div>
       <div class="sr"><label>Z min</label>
-        <input class="z" type="range" id="sl-zlo" min="-3" max="1" step="0.01" value="-1.26">
-        <span id="v-zlo">-1.26</span></div>
+        <input class="z" type="range" id="sl-zlo" min="-3" max="1" step="0.01" value="-0.50">
+        <input class="num-in" type="number" id="v-zlo" value="-0.50" step="0.01" min="-3" max="1"></div>
       <div class="sr"><label>Z max</label>
-        <input class="z" type="range" id="sl-zhi" min="-3" max="3" step="0.01" value="-0.56">
-        <span id="v-zhi">-0.56</span></div>
+        <input class="z" type="range" id="sl-zhi" min="-1" max="3" step="0.01" value="0.15">
+        <input class="num-in" type="number" id="v-zhi" value="0.15" step="0.01" min="-1" max="3"></div>
     </div>
     <div>
-      <div class="grp" style="color:var(--sliceI)">Intensity  (visual only — cluster uses Z)</div>
+      <div class="grp" style="color:var(--sliceI)">Intensity  (AND z-height → clustering node)</div>
       <div class="sr"><label>Int min</label>
-        <input class="i" type="range" id="sl-ilo" min="0" max="1000" step="1" value="0">
-        <span id="v-ilo">0</span></div>
+        <input class="i" type="range" id="sl-ilo" min="0" max="255" step="1" value="0">
+        <input class="num-in" type="number" id="v-ilo" value="0" step="1" min="0" max="255"></div>
       <div class="sr"><label>Int max</label>
-        <input class="i" type="range" id="sl-ihi" min="0" max="1000" step="1" value="500">
-        <span id="v-ihi">500</span></div>
+        <input class="i" type="range" id="sl-ihi" min="0" max="255" step="1" value="255">
+        <input class="num-in" type="number" id="v-ihi" value="255" step="1" min="0" max="255"></div>
     </div>
     <div>
       <div class="grp" style="color:var(--lidar)">Range</div>
       <div class="sr"><label>R min</label>
         <input class="r" type="range" id="sl-rmin" min="0" max="2" step="0.05" value="0.5">
-        <span id="v-rmin">0.50</span></div>
+        <input class="num-in" type="number" id="v-rmin" value="0.50" step="0.05" min="0" max="2"></div>
       <div class="sr"><label>R max</label>
         <input class="r" type="range" id="sl-rmax" min="1" max="20" step="0.1" value="8">
-        <span id="v-rmax">8.0</span></div>
+        <input class="num-in" type="number" id="v-rmax" value="8.00" step="0.1" min="1" max="20"></div>
     </div>
     <div>
       <div class="grp">Slice mode</div>
@@ -903,9 +941,17 @@ function post(){
     headers:{'Content-Type':'application/json'},body:JSON.stringify(sliderVals())});
 }
 ['zlo','zhi','ilo','ihi','rmin','rmax'].forEach(id=>{
-  const el=document.getElementById('sl-'+id);
-  const sp=document.getElementById('v-'+id);
-  el.addEventListener('input',()=>{sp.textContent=parseFloat(el.value).toFixed(2);post();});
+  const rng=document.getElementById('sl-'+id);
+  const num=document.getElementById('v-'+id);
+  rng.addEventListener('input',()=>{num.value=parseFloat(rng.value).toFixed(2);post();});
+  num.addEventListener('change',()=>{
+    const v=parseFloat(num.value);
+    if(!isNaN(v)){
+      rng.value=Math.max(parseFloat(rng.min),Math.min(parseFloat(rng.max),v));
+      num.value=parseFloat(rng.value).toFixed(2);
+      post();
+    }
+  });
 });
 
 /* Lidar beams: 90° CW rotation applied (sin/cos swapped). Bearing/heading arrows: +π/2 so 0=FWD=UP. */
@@ -1171,7 +1217,7 @@ function panel(d){
   }
   if(d.spot_yaw!=null)$t('i-yw',(d.spot_yaw*180/Math.PI).toFixed(1)+'°');
   const cfg=d.filter_cfg||{};
-  const mStr=cfg.use_intensity?'Intensity (visual)':'Z height → clustering';
+  const mStr=cfg.use_intensity?'Intensity + Z → clustering':'Z height → clustering';
   $t('i-md',mStr,cfg.use_intensity?'#ff44cc':'#ffcc00');
   $t('i-zs','['+Number(cfg.z_lower||0).toFixed(2)+', '+Number(cfg.z_upper||0).toFixed(2)+']');
   $t('i-is','['+Number(cfg.int_lower||0).toFixed(0)+', '+Number(cfg.int_upper||500).toFixed(0)+']');
@@ -1201,7 +1247,7 @@ function initSliders(cfg){
   for(const[id,key] of Object.entries(map)){
     const el=document.getElementById('sl-'+id);
     const sp=document.getElementById('v-'+id);
-    if(el&&cfg[key]!=null){el.value=cfg[key];sp.textContent=parseFloat(cfg[key]).toFixed(2);}
+    if(el&&cfg[key]!=null){el.value=cfg[key];sp.value=parseFloat(cfg[key]).toFixed(2);}
   }
 }
 function makeSplitter(el,a,b,axis){
