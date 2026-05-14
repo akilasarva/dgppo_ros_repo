@@ -477,7 +477,7 @@ class DGPPOROSNode(Node):
 
         angular_offset = self.get_parameter('angular_offset_deg').get_parameter_value().double_value
         key = f"{mapped_start_cluster_id}-{mapped_next_cluster_id}"
-        bearing_value = self.bearing_map.get(key, 0.0) + math.radians(angular_offset)
+        bearing_value = self.bearing_map.get(key, 0.0) + math.radians(angular_offset) + math.pi
         self.get_logger().info(
             f"Start:{mapped_start_cluster_id} Cur:{mapped_current_cluster_id} "
             f"Next:{mapped_next_cluster_id} Bearing:{bearing_value:.3f}"
