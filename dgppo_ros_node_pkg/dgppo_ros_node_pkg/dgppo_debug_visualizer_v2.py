@@ -64,8 +64,8 @@ TERRAIN_NAMES = {0: "Road", 1: "Grass", 2: "Sidewalk"}
 CLUSTER_NAMES = {0: "open_space", 1: "approach_bridge", 2: "on_bridge", 3: "exit_bridge"}
 RAW_TO_MAPPED = {
     **{k: 0 for k in [0, 1]},
-    **{k: 1 for k in [2, 3, 11]},
-    **{k: 2 for k in [5, 6, 7, 8, 9]},
+    **{k: 1 for k in [2, 3, 10, 11]},
+    **{k: 2 for k in [5, 6, 7, 8, 9, 12]},
     **{k: 3 for k in [-1, 4]},
 }
 

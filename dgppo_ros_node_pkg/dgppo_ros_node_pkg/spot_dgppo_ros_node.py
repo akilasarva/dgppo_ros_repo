@@ -131,6 +131,15 @@ class DGPPOROSNode(Node):
         self.origin_x = 0.0
         self.origin_y = 0.0
 
+        # sim_origin: where Spot's startup location maps to in the training sim domain.
+        # Spot starts at vision-frame (0,0); without this offset sim_pos=(0,0) which is the
+        # lower-left corner of the [0,1.5]^2 training domain. The offset shifts it to the
+        # start-cluster centroid position so the policy sees a familiar region at startup.
+        _start_id = str(self.plan_sequence[0]["start"]) if self.plan_sequence else None
+        _c = self.cluster_centroids.get(_start_id, [0.0, 0.0, 0.0]) if _start_id else [0.0, 0.0, 0.0]
+        self.sim_origin_x = (_c[1] - self.origin_y) / self.scale_2d_3d  # centroid[1]=lateral
+        self.sim_origin_y = (_c[0] - self.origin_x) / self.scale_2d_3d  # centroid[0]=forward
+
         self.spot_yaw_pub = self.create_publisher(Float32MultiArray, '/dgppo_spot_yaw', 10)
         self.spot_act_pub = self.create_publisher(Float32MultiArray, '/dgppo_action', 10)
 
@@ -215,9 +224,9 @@ class DGPPOROSNode(Node):
         self.get_logger().info(f"cluster id: {cluster_id}")
         if cluster_id in [0, 1]:
             return 0  # open_space
-        elif cluster_id in [2, 3, 11]:
+        elif cluster_id in [2, 3, 10, 11]:
             return 1  # approach_bridge_0
-        elif cluster_id in [5, 6, 7, 8, 9]:
+        elif cluster_id in [5, 6, 7, 8, 9, 12]:
             return 2  # on_bridge_0
         elif cluster_id in [-1, 4]:
             return 3  # exit_bridge_0
@@ -308,11 +317,11 @@ class DGPPOROSNode(Node):
         yaw_msg = Float32MultiArray()
         yaw_msg.data = [yaw]
         self.spot_yaw_pub.publish(yaw_msg)
-        sim_pos_x = -pos.y      # Spot Y (left)  → Sim X
-        sim_pos_y = pos.x       # Spot X (front) → Sim Y
-        sim_vel_x = -vel.y      # Spot Y-vel → Sim X-vel
-        sim_vel_y = vel.x       # Spot X-vel → Sim Y-vel
-        scaled_latest_state_np = np.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=np.float32) / self.scale_2d_3d
+        sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x   # Spot Y (left)  → Sim X
+        sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y   # Spot X (front) → Sim Y
+        sim_vel_x = -vel.y / self.scale_2d_3d                        # Spot Y-vel → Sim X-vel
+        sim_vel_y =  vel.x / self.scale_2d_3d                        # Spot X-vel → Sim Y-vel
+        scaled_latest_state_np = np.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=np.float32)
         self.latest_agent_state = jnp.expand_dims(jnp.array(scaled_latest_state_np), axis=0)
 
         import time as _time
@@ -477,7 +486,7 @@ class DGPPOROSNode(Node):
 
         angular_offset = self.get_parameter('angular_offset_deg').get_parameter_value().double_value
         key = f"{mapped_start_cluster_id}-{mapped_next_cluster_id}"
-        bearing_value = self.bearing_map.get(key, 0.0) + math.radians(angular_offset) + math.pi
+        bearing_value = self.bearing_map.get(key, 0.0) + math.radians(angular_offset)
         self.get_logger().info(
             f"Start:{mapped_start_cluster_id} Cur:{mapped_current_cluster_id} "
             f"Next:{mapped_next_cluster_id} Bearing:{bearing_value:.3f}"
