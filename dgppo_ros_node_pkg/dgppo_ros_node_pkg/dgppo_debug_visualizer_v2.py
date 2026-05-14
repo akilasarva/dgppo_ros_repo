@@ -95,8 +95,8 @@ _CFG_SAVE_PATH = os.path.join(os.path.dirname(__file__), 'filter_config.json')
 class FilterConfig:
     def __init__(self):
         self._lock     = threading.Lock()
-        self.z_upper   = -0.56
-        self.z_lower   = -1.26
+        self.z_upper   = 0.15
+        self.z_lower   = -0.5
         self.z2_upper  = 0.0
         self.z2_lower  = 0.0
         self.max_range = 8.0
@@ -258,19 +258,18 @@ class DebugSubscriber(Node):
             fields = {f.name for f in msg.fields}
             has_i  = 'intensity' in fields
             want   = ['x', 'y', 'z'] + (['intensity'] if has_i else [])
-            raw    = list(read_points(msg, field_names=want, skip_nans=True))
-            if not raw:
+            raw    = read_points(msg, field_names=want, skip_nans=True)
+            if raw is None or len(raw) == 0:
                 return
-            s = np.array(raw)  # structured array with named fields
-            x = s['x'].astype(np.float32)
-            y = s['y'].astype(np.float32)
-            z = s['z'].astype(np.float32)
-            i = s['intensity'].astype(np.float32) if has_i else np.zeros(len(x), np.float32)
+            x = raw['x'].astype(np.float32)
+            y = raw['y'].astype(np.float32)
+            z = raw['z'].astype(np.float32)
+            i = raw['intensity'].astype(np.float32) if has_i else np.zeros(len(x), np.float32)
             pts = np.column_stack([x, y, z, i])
             stride = max(1, len(pts) // 5000)
             self.state.set_raw_cloud(pts[::stride])
-        except Exception:
-            pass
+        except Exception as e:
+            self.get_logger().warn(f'cloud cb error: {e}', throttle_duration_sec=5.0)
 
     def _cb_raw_img(self, msg):
         _encode_frame(msg, self.state.set_raw_frame)
@@ -343,8 +342,8 @@ def _bearing_for_step(snap):
 def _apply_slice_filter(raw_cloud, cfg):
     """Split raw_cloud (N,4) into (all_xy, slice_xy) with x already negated.
 
-    Z mode  → band filter on abs(z); same parameters sent to clustering node.
-    Int mode → band filter on intensity; clustering node unaffected.
+    Z mode  → signed z band filter; same parameters sent to clustering node.
+    Int mode → band filter on intensity; clustering node uses intensity too.
     The x-negation corrects for upside-down lidar mounting throughout.
     """
     if raw_cloud is None or len(raw_cloud) == 0:

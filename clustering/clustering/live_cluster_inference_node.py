@@ -79,8 +79,8 @@ class LiveClusterInferenceNode(Node):
         self.angle_increment_deg = float(360.0 / self.num_ranges)
         
         # Multiple altitude slices to match training data preprocessing
-        self.z_threshold_upper = 1.26
-        self.z_threshold_lower = 0.56
+        self.z_threshold_upper = 0.15
+        self.z_threshold_lower = -0.5
         self.z_threshold_upper_2 = 0
         self.z_threshold_lower_2 = 0
         
