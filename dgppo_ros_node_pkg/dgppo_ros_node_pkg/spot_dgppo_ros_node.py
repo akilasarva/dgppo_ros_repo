@@ -490,6 +490,12 @@ class DGPPOROSNode(Node):
                         f"To reclaim: ros2 service call /dgppo_take_lease std_srvs/srv/Trigger '{{}}' "
                         f"({type(e).__name__})"
                     )
+                    # Stop the SDK keep-alive thread; otherwise its RetainLease RPCs keep
+                    # failing and spamming "Generic exception ... during check-in: LeaseUseError".
+                    try:
+                        self.lease_keep_alive.shutdown()
+                    except Exception as shutdown_err:
+                        self.get_logger().warning(f"Lease keep-alive shutdown failed: {shutdown_err}")
                 self._tablet_has_lease = True
 
     def agent_step_euler(self, agent_states: AgentState, action: Action) -> AgentState:
