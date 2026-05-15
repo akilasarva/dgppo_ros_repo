@@ -142,6 +142,7 @@ class DGPPOROSNode(Node):
 
         self.spot_yaw_pub = self.create_publisher(Float32MultiArray, '/dgppo_spot_yaw', 10)
         self.spot_act_pub = self.create_publisher(Float32MultiArray, '/dgppo_action', 10)
+        self.state_debug_pub = self.create_publisher(Float32MultiArray, '/dgppo_state_debug', 10)
         self.plan_step_pub = self.create_publisher(Int32, '/dgppo_plan_step', 10)
 
         self.timer = self.create_timer(0.1, self.control_loop)
@@ -322,6 +323,8 @@ class DGPPOROSNode(Node):
         sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y   # Spot X (front) → Sim Y
         sim_vel_x = -vel.y / self.scale_2d_3d                        # Spot Y-vel → Sim X-vel
         sim_vel_y =  vel.x / self.scale_2d_3d                        # Spot X-vel → Sim Y-vel
+        vel_body_fwd =  vel.x * math.cos(yaw) + vel.y * math.sin(yaw)   # body +x (forward)
+        vel_body_lat = -vel.x * math.sin(yaw) + vel.y * math.cos(yaw)   # body +y (left)
         scaled_latest_state_np = np.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=np.float32)
         self.latest_agent_state = jnp.expand_dims(jnp.array(scaled_latest_state_np), axis=0)
 
@@ -404,6 +407,17 @@ class DGPPOROSNode(Node):
         v_x_target = float(np.clip(float(new_movement_targets[3]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
         v_y_target = float(np.clip(-float(new_movement_targets[2]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
 
+        _dbg = Float32MultiArray()
+        _dbg.data = [
+            float(pos.x),        float(pos.y),        # [0,1]  vision frame pos (m)
+            float(vel.x),        float(vel.y),        # [2,3]  vision frame vel (m/s)
+            float(vel_body_fwd), float(vel_body_lat), # [4,5]  body frame vel: fwd, left (m/s)
+            float(sim_pos_x),    float(sim_pos_y),    # [6,7]  DGPPO sim pos (scaled)
+            float(sim_vel_x),    float(sim_vel_y),    # [8,9]  DGPPO sim vel (scaled)
+            float(v_x_target),   float(v_y_target),   # [10,11] cmd to Spot, vision frame (m/s)
+        ]
+        self.state_debug_pub.publish(_dbg)
+
         act_msg = Float32MultiArray()
         act_msg.data = [-v_y_target, v_x_target]  # [right, fwd] matches visualizer canvas convention
         self.spot_act_pub.publish(act_msg)
@@ -413,7 +427,7 @@ class DGPPOROSNode(Node):
         self.plan_step_pub.publish(plan_step_msg)
 
         dry_run = self.get_parameter('dry_run').get_parameter_value().bool_value
-        velocity_command = RobotCommandBuilder.synchro_velocity_command(v_x=v_x_target, v_y=v_y_target, v_rot=0.0)
+        velocity_command = RobotCommandBuilder.synchro_velocity_command(v_x=v_x_target, v_y=v_y_target, v_rot=0.0, frame_name=VISION_FRAME_NAME)
         if dry_run:
             self.get_logger().info(f"[DRY RUN] Action: {action}  Vel X: {v_x_target:.3f}  Vel Y: {v_y_target:.3f}  (no command sent)")
         else:

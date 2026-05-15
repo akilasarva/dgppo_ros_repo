@@ -162,6 +162,7 @@ class DebugState:
         self.filter_cfg      = filter_cfg
         self.raw_frame_jpg   = None   # bytes: JPEG of raw ZED image
         self.hsv_frame_jpg   = None   # bytes: JPEG of HSV-segmented image
+        self.state_debug     = None   # 12-float transform debug from /dgppo_state_debug
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -192,6 +193,9 @@ class DebugState:
     def set_hsv_frame(self, jpg):
         with self._lock: self.hsv_frame_jpg = jpg
 
+    def set_state_debug(self, data):
+        with self._lock: self.state_debug = data
+
     def get_raw_frame(self):
         with self._lock: return self.raw_frame_jpg
 
@@ -214,6 +218,7 @@ class DebugState:
                 raw_cloud        = self.raw_cloud.copy()
                                    if self.raw_cloud is not None else None,
                 filter_cfg       = self.filter_cfg.get(),
+                state_debug      = self.state_debug,
             )
 
 
@@ -228,8 +233,9 @@ class DebugSubscriber(Node):
         sub(Int16,             '/predicted_cluster', self._cb_cluster,  10)
         sub(Int32,             '/current_terrain',   self._cb_terrain,  10)
         sub(Int32,             '/dgppo_plan_step',   self._cb_planstep, 10)
-        sub(Float32MultiArray, '/processed_ranges',  self._cb_ranges,   10)
-        sub(Float32MultiArray, '/dgppo_spot_yaw',    self._cb_spot_yaw, 10)
+        sub(Float32MultiArray, '/processed_ranges',  self._cb_ranges,      10)
+        sub(Float32MultiArray, '/dgppo_spot_yaw',    self._cb_spot_yaw,    10)
+        sub(Float32MultiArray, '/dgppo_state_debug', self._cb_state_debug, 10)
         sub(PointCloud2,       '/livox/lidar',       self._cb_cloud,    qos_profile_sensor_data)
         sub(Image, '/hamilton_zed2i/zed_node/rgb/image_rect_color', self._cb_raw_img, qos_profile_sensor_data)
         sub(Image, '/segmentor_image',                   self._cb_hsv_img, 10)
@@ -251,6 +257,10 @@ class DebugSubscriber(Node):
     def _cb_spot_yaw(self, msg):
         if msg.data:
             self.state.set_spot_yaw(float(msg.data[0]))
+
+    def _cb_state_debug(self, msg):
+        if len(msg.data) >= 12:
+            self.state.set_state_debug(list(msg.data))
 
     def _cb_cloud(self, msg: PointCloud2):
         try:
@@ -709,6 +719,17 @@ def run_desktop(state: DebugState):
                  ('|a| mag',    f'{mag:.4f}',  C_DIM)]
         if spot_yaw is not None:
             rows += [('', '', ''), ('SPOT YAW', f'{math.degrees(spot_yaw):+.1f}°', C_HEADING)]
+
+        sd = snap.get('state_debug')
+        if sd and len(sd) >= 12:
+            rows += [('', '', ''),
+                     ('── FRAME DEBUG', '', '#555566'),
+                     ('pos_vis x/y  m',    f'{sd[0]:+.3f} / {sd[1]:+.3f}',   '#aaddff'),
+                     ('vel_vis x/y  m/s',  f'{sd[2]:+.3f} / {sd[3]:+.3f}',   '#aaddff'),
+                     ('vel_body fwd/lat',  f'{sd[4]:+.3f} / {sd[5]:+.3f}',   '#aaffaa'),
+                     ('sim_pos x/y',       f'{sd[6]:+.3f} / {sd[7]:+.3f}',   '#ffddaa'),
+                     ('sim_vel x/y',       f'{sd[8]:+.4f} / {sd[9]:+.4f}',   '#ffddaa'),
+                     ('cmd vx/vy  m/s',    f'{sd[10]:+.3f} / {sd[11]:+.3f}', '#ffaaff')]
         rows.append(('', '', ''))
 
         rows.append(('', '', ''))
@@ -844,6 +865,14 @@ input.r{accent-color:var(--lidar)}
     <div class="row"><span class="k">|a| mag</span><span class="v" id="i-mg">—</span></div>
     <hr>
     <div class="row"><span class="k">SPOT YAW</span><span class="v" id="i-yw">—</span></div>
+    <hr>
+    <div style="font-size:9px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin:3px 0">Frame Debug</div>
+    <div class="row"><span class="k" style="color:#aaddff">pos_vis x/y m</span><span class="v" id="i-dbpv" style="color:#aaddff">—</span></div>
+    <div class="row"><span class="k" style="color:#aaddff">vel_vis x/y m/s</span><span class="v" id="i-dbvv" style="color:#aaddff">—</span></div>
+    <div class="row"><span class="k" style="color:#aaffaa">vel_body fwd/lat</span><span class="v" id="i-dbvb" style="color:#aaffaa">—</span></div>
+    <div class="row"><span class="k" style="color:#ffddaa">sim_pos x/y</span><span class="v" id="i-dbsp" style="color:#ffddaa">—</span></div>
+    <div class="row"><span class="k" style="color:#ffddaa">sim_vel x/y</span><span class="v" id="i-dbsv" style="color:#ffddaa">—</span></div>
+    <div class="row"><span class="k" style="color:#ffaaff">cmd vx/vy m/s</span><span class="v" id="i-dbcv" style="color:#ffaaff">—</span></div>
     <hr>
     <div class="row"><span class="k" style="color:var(--topk)">TOP-K PTS</span><span class="v" style="color:var(--topk);font-size:9px">(x right, y fwd) world</span></div>
     <div id="i-topk"></div>
@@ -1245,6 +1274,16 @@ function panel(d){
     }
   }
   if(d.spot_yaw!=null)$t('i-yw',(d.spot_yaw*180/Math.PI).toFixed(1)+'°');
+  if(d.state_debug&&d.state_debug.length>=12){
+    const sd=d.state_debug;
+    const f3=v=>(v>=0?'+':'')+v.toFixed(3), f4=v=>(v>=0?'+':'')+v.toFixed(4);
+    $t('i-dbpv',f3(sd[0])+' / '+f3(sd[1]));
+    $t('i-dbvv',f3(sd[2])+' / '+f3(sd[3]));
+    $t('i-dbvb',f3(sd[4])+' / '+f3(sd[5]));
+    $t('i-dbsp',f3(sd[6])+' / '+f3(sd[7]));
+    $t('i-dbsv',f4(sd[8])+' / '+f4(sd[9]));
+    $t('i-dbcv',f3(sd[10])+' / '+f3(sd[11]));
+  }
   const topkEl=document.getElementById('i-topk');
   if(topkEl){
     if(d.processed_ranges&&d.processed_ranges.length){
@@ -1393,6 +1432,7 @@ def run_web(state: DebugState, port=WEB_PORT):
             cloud_slice      = cloud_slice,
             cloud_3d         = cloud_3d,
             filter_cfg       = snap['filter_cfg'],
+            state_debug      = snap.get('state_debug'),
         ))
 
     # Build a "no signal" placeholder JPEG once at startup

@@ -79,6 +79,7 @@ class DebugState:
         self.imu_yaw       = None  # radians, None = not received yet
         self.lidar_all     = None  # (n_rays, 2) hit positions relative to agent
         self.lidar_topk    = None  # (top_k, 2) closest hits sent to policy
+        self.state_debug   = None  # 12-float transform debug from /dgppo_state_debug
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -101,6 +102,10 @@ class DebugState:
         with self._lock:
             self.imu_yaw = yaw_rad
 
+    def set_state_debug(self, data):
+        with self._lock:
+            self.state_debug = data
+
     def set_lidar(self, all_hits, topk_hits):
         with self._lock:
             self.lidar_all  = all_hits
@@ -119,6 +124,7 @@ class DebugState:
                 imu_yaw      = self.imu_yaw,
                 lidar_all    = self.lidar_all,
                 lidar_topk   = self.lidar_topk,
+                state_debug  = self.state_debug,
             )
 
 
@@ -133,8 +139,9 @@ class DebugSubscriber(Node):
         self.create_subscription(Int32,             '/current_terrain',   self._cb_terrain,  10)
         self.create_subscription(Int32,             '/dgppo_plan_step',   self._cb_planstep, 10)
         self.create_subscription(Float32MultiArray, '/dgppo_imu_yaw',     self._cb_imu_yaw,  10)
-        self.create_subscription(Float32MultiArray, '/dgppo_lidar_all',   self._cb_lidar_all,  10)
-        self.create_subscription(Float32MultiArray, '/dgppo_lidar_topk',  self._cb_lidar_topk, 10)
+        self.create_subscription(Float32MultiArray, '/dgppo_lidar_all',   self._cb_lidar_all,   10)
+        self.create_subscription(Float32MultiArray, '/dgppo_lidar_topk',  self._cb_lidar_topk,  10)
+        self.create_subscription(Float32MultiArray, '/dgppo_state_debug', self._cb_state_debug, 10)
         self._lidar_all_buf  = None
 
     def _cb_action(self, msg):
@@ -162,6 +169,10 @@ class DebugSubscriber(Node):
         if len(msg.data) >= 2 and self._lidar_all_buf is not None:
             topk = np.array(msg.data, dtype=np.float32).reshape(-1, 2)
             self.state.set_lidar(self._lidar_all_buf, topk)
+
+    def _cb_state_debug(self, msg):
+        if len(msg.data) >= 12:
+            self.state.set_state_debug(list(msg.data))
 
 
 def ros_thread(state: DebugState):
@@ -421,6 +432,17 @@ def run_visualizer(state: DebugState):
         if imu_yaw is not None:
             rows.append(('', '', ''))
             rows.append(('IMU YAW (rel)', f'{math.degrees(imu_yaw + math.pi / 2):+.1f}°', '#e040fb'))
+
+        sd = snap.get('state_debug')
+        if sd and len(sd) >= 12:
+            rows.append(('', '', ''))
+            rows.append(('── FRAME DEBUG ──', '', '#555566'))
+            rows.append(('pos_vis x/y  m',     f'{sd[0]:+.3f} / {sd[1]:+.3f}',  '#aaddff'))
+            rows.append(('vel_vis x/y  m/s',   f'{sd[2]:+.3f} / {sd[3]:+.3f}',  '#aaddff'))
+            rows.append(('vel_body fwd/lat',    f'{sd[4]:+.3f} / {sd[5]:+.3f}',  '#aaffaa'))
+            rows.append(('sim_pos x/y',         f'{sd[6]:+.3f} / {sd[7]:+.3f}',  '#ffddaa'))
+            rows.append(('sim_vel x/y',         f'{sd[8]:+.4f} / {sd[9]:+.4f}',  '#ffddaa'))
+            rows.append(('cmd vx/vy  m/s',      f'{sd[10]:+.3f} / {sd[11]:+.3f}', '#ffaaff'))
 
         # Draw rows
         y = 0.97
