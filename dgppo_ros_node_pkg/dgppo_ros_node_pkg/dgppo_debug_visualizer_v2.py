@@ -552,7 +552,12 @@ def run_desktop(state: DebugState):
                  if raw_cluster is not None else None
         slice_color = C_CLOUD_SLICE_I if cfg['use_intensity'] else C_CLOUD_SLICE_Z
 
-        # ── Raw cloud layers (x already negated by _apply_slice_filter) ──
+        # ── Raw cloud layers — body frame on left canvas ────────────────
+        # _apply_slice_filter returns (body_right, body_forward).
+        # R(ψ) is applied only in the 3D middle panel; left canvas stays body-frame.
+        ψ = spot_yaw if spot_yaw is not None else 0.0
+        cos_ψ, sin_ψ = np.cos(ψ), np.sin(ψ)
+
         raw_cloud = snap.get('raw_cloud')
         if raw_cloud is not None:
             all_xy, slice_xy = _apply_slice_filter(raw_cloud, cfg)
@@ -569,11 +574,14 @@ def run_desktop(state: DebugState):
                                              color=slice_color, zorder=2,
                                              linewidths=0, alpha=0.85))
 
-        # ── 3D point cloud with z-slice planes ───────────────────────────
+        # ── 3D point cloud with z-slice planes — world-frame R(ψ) applied ──
         if ax3d is not None and raw_cloud is not None and len(raw_cloud) > 0:
             stride3 = max(1, len(raw_cloud) // 800)
             pts3    = raw_cloud[::stride3]
-            x3, y3, z3 = pts3[:, 0], pts3[:, 1], pts3[:, 2]
+            x3_raw, y3_raw, z3 = pts3[:, 0], pts3[:, 1], pts3[:, 2]
+            # sensor col0=body_fwd, col1=body_right; rotate to world frame
+            x3 = y3_raw * cos_ψ - x3_raw * sin_ψ  # world right
+            y3 = y3_raw * sin_ψ + x3_raw * cos_ψ  # world fwd
 
             in_band  = (z3 >= cfg['z_lower']) & (z3 <= cfg['z_upper'])
             out_band = ~in_band
@@ -705,8 +713,14 @@ def run_desktop(state: DebugState):
 
         rows.append(('', '', ''))
         if len(topk):
-            rows.append(('TOP-K PTS', f'(x, y) body frame', C_TOPK))
-            for i, (px, py) in enumerate(topk):
+            rows.append(('TOP-K PTS', '(x right, y fwd) world', C_TOPK))
+            ψ = spot_yaw if spot_yaw is not None else 0.0
+            cos_ψ, sin_ψ = np.cos(ψ), np.sin(ψ)
+            topk_world = np.column_stack([
+                topk[:, 0] * cos_ψ - topk[:, 1] * sin_ψ,
+                topk[:, 0] * sin_ψ + topk[:, 1] * cos_ψ,
+            ])
+            for i, (px, py) in enumerate(topk_world):
                 rows.append((f'  pt {i}', f'({px:.2f}, {py:.2f})', C_TOPK))
         else:
             rows.append(('TOP-K PTS', 'none', C_DIM))
@@ -831,7 +845,7 @@ input.r{accent-color:var(--lidar)}
     <hr>
     <div class="row"><span class="k">SPOT YAW</span><span class="v" id="i-yw">—</span></div>
     <hr>
-    <div class="row"><span class="k" style="color:var(--topk)">TOP-K PTS</span><span class="v" style="color:var(--topk);font-size:9px">(x right, y fwd)</span></div>
+    <div class="row"><span class="k" style="color:var(--topk)">TOP-K PTS</span><span class="v" style="color:var(--topk);font-size:9px">(x right, y fwd) world</span></div>
     <div id="i-topk"></div>
     <hr>
     <div class="row"><span class="k">Mode</span><span class="v" id="i-md">—</span></div>
@@ -1022,7 +1036,7 @@ function draw(d){
   ctx.textAlign='left'; ctx.fillText('RIGHT',W-24,cy+4);
   ctx.textAlign='center';
 
-  // Layer 1: raw cloud all (pre-rotated 90° CW server-side, use cx+x*sc)
+  // Layer 1: raw cloud all — body frame (x=right, y=fwd; pre-rotated 90° CW server-side)
   if(d.cloud_all&&d.cloud_all.length){
     ctx.fillStyle=C.cloudAll;
     d.cloud_all.forEach(([x,y])=>{
@@ -1030,7 +1044,7 @@ function draw(d){
     });
   }
 
-  // Layer 2: slice — Z=yellow, Intensity=magenta (x pre-negated server-side)
+  // Layer 2: slice — Z=yellow, Intensity=magenta (body frame)
   const slCol=useIntensity?C.sliceI:C.sliceZ;
   if(d.cloud_slice&&d.cloud_slice.length){
     ctx.fillStyle=slCol;ctx.globalAlpha=0.85;
@@ -1178,16 +1192,19 @@ function updateThree(d){
   if(_t3.sliceMesh)_t3.sliceMesh.material.color.setHex(sliceHex);
   if(!d.cloud_3d||!d.cloud_3d.length)return;
   const pts=d.cloud_3d;
+  const psi3=d.spot_yaw||0.0,cosP3=Math.cos(psi3),sinP3=Math.sin(psi3);
+  // pts[i]=[body_fwd, body_right, z]; rotate to world frame; Three.js: x=wf, y=z, z=-wr
+  function toW3(bf,br,z){const wr=br*cosP3-bf*sinP3,wf=br*sinP3+bf*cosP3;return[wf,z,-wr];}
   // All points
   const posA=new Float32Array(pts.length*3);
-  for(let i=0;i<pts.length;i++){posA[i*3]=pts[i][0];posA[i*3+1]=pts[i][2];posA[i*3+2]=-pts[i][1];}
+  for(let i=0;i<pts.length;i++){const[tx,ty,tz]=toW3(pts[i][0],pts[i][1],pts[i][2]);posA[i*3]=tx;posA[i*3+1]=ty;posA[i*3+2]=tz;}
   _t3.ptsMesh.geometry.setAttribute('position',new THREE.BufferAttribute(posA,3));
   _t3.ptsMesh.geometry.computeBoundingSphere();
   // In-slice points
   const sl=pts.filter(p=>p[2]>=zLo&&p[2]<=zHi);
   if(sl.length){
     const posS=new Float32Array(sl.length*3);
-    for(let i=0;i<sl.length;i++){posS[i*3]=sl[i][0];posS[i*3+1]=sl[i][2];posS[i*3+2]=-sl[i][1];}
+    for(let i=0;i<sl.length;i++){const[tx,ty,tz]=toW3(sl[i][0],sl[i][1],sl[i][2]);posS[i*3]=tx;posS[i*3+1]=ty;posS[i*3+2]=tz;}
     _t3.sliceMesh.geometry.setAttribute('position',new THREE.BufferAttribute(posS,3));
     _t3.sliceMesh.geometry.computeBoundingSphere();
   }
@@ -1233,6 +1250,8 @@ function panel(d){
     if(d.processed_ranges&&d.processed_ranges.length){
       const n=d.processed_ranges.length;
       const maxR=(d.filter_cfg&&d.filter_cfg.max_range)||8.0;
+      const psi=d.spot_yaw||0.0;
+      const cosP=Math.cos(psi), sinP=Math.sin(psi);
       const hits=[];
       for(let i=0;i<n;i++){
         const r=d.processed_ranges[i];
@@ -1240,8 +1259,11 @@ function panel(d){
       }
       const sorted=[...hits].sort((a,b)=>a.r-b.r).slice(0,TOP_K);
       topkEl.innerHTML=sorted.map((h,i)=>{
-        const px=(h.r*Math.sin(h.a)).toFixed(2);
-        const py=(h.r*Math.cos(h.a)).toFixed(2);
+        // body frame: xb=right=r*sin(a), yb=fwd=r*cos(a)
+        // world frame: rotate by yaw psi to undo robot rotation
+        const xb=h.r*Math.sin(h.a), yb=h.r*Math.cos(h.a);
+        const px=(xb*cosP - yb*sinP).toFixed(2);
+        const py=(xb*sinP + yb*cosP).toFixed(2);
         return `<div class="row"><span class="k" style="color:var(--topk)">  pt ${i}</span>`+
                `<span class="v" style="color:var(--topk);font-family:monospace">(${px}, ${py})</span></div>`;
       }).join('')||'<div class="row"><span class="v" style="color:var(--dim)">none</span></div>';
