@@ -13,7 +13,7 @@ from typing import NamedTuple, Tuple, Optional, List, Dict
 
 # ROS2 Messages
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Int16, Float32MultiArray
+from std_msgs.msg import Int16, Int32, Float32MultiArray
 from nav_msgs.msg import Odometry
 
 # Boston Dynamics
@@ -142,6 +142,7 @@ class DGPPOROSNode(Node):
 
         self.spot_yaw_pub = self.create_publisher(Float32MultiArray, '/dgppo_spot_yaw', 10)
         self.spot_act_pub = self.create_publisher(Float32MultiArray, '/dgppo_action', 10)
+        self.plan_step_pub = self.create_publisher(Int32, '/dgppo_plan_step', 10)
 
         self.timer = self.create_timer(0.1, self.control_loop)
 
@@ -407,6 +408,10 @@ class DGPPOROSNode(Node):
         act_msg.data = [-v_y_target, v_x_target]  # [right, fwd] matches visualizer canvas convention
         self.spot_act_pub.publish(act_msg)
 
+        plan_step_msg = Int32()
+        plan_step_msg.data = int(self.current_plan_step_index)
+        self.plan_step_pub.publish(plan_step_msg)
+
         dry_run = self.get_parameter('dry_run').get_parameter_value().bool_value
         velocity_command = RobotCommandBuilder.synchro_velocity_command(v_x=v_x_target, v_y=v_y_target, v_rot=0.0)
         if dry_run:
@@ -458,15 +463,16 @@ class DGPPOROSNode(Node):
         # Spot yaw=0 = facing +X; sim forward = +Y, so add π/2 to align conventions.
         angles_phys = np.linspace(0, 2 * np.pi, self.n_rays_phys, endpoint=False)
         angles_beam = np.linspace(-np.pi, np.pi - 2 * np.pi / n_rays, n_rays)
-        # Negate angles_beam before lookup: lidar uses atan2(spot_y, spot_x) where +y=left,
-        # so physical 90° = Spot left = sim -X (west). Negation maps physical→sim bearing.
-        ranges_res  = np.interp(np.mod(-angles_beam, 2 * np.pi), angles_phys, scaled_ranges)
-        # Rotate body-frame beam angles into world (sim) frame.
-        # Spot yaw CCW = positive; Sim X = -Spot Y flips rotation sign → subtract yaw.
-        angles_world = angles_beam - yaw
+        # Sensor bin to look up for training beam at θ_beam (sim world angle):
+        #   φ_sensor = π/2 + yaw − θ_beam
+        # Upside-down mount: +Y_sensor = Spot right → φ_body = −φ_sensor.
+        # Spot +X = Sim +Y: body→world heading offset is π/2, plus robot yaw.
+        # Training lidar is world-frame (no agent yaw in training dirs).
+        ranges_res = np.interp(np.mod(np.pi / 2 + yaw - angles_beam, 2 * np.pi), angles_phys, scaled_ranges)
+        # angles_beam are sim world angles; hits are world-frame positions.
         obs_hits = np.stack([
-            agent_pos_2d[0] + ranges_res * np.sin(angles_world),
-            agent_pos_2d[1] + ranges_res * np.cos(angles_world),
+            agent_pos_2d[0] + ranges_res * np.cos(angles_beam),
+            agent_pos_2d[1] + ranges_res * np.sin(angles_beam),
         ], axis=1).astype(np.float32)  # (n_rays, 2)
 
         # ── 2. Terrain boundary hits: zeros (geometry not wired yet) ─────────────
