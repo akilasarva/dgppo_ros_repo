@@ -474,7 +474,7 @@ class DGPPOROSNode(Node):
         self.plan_step_pub.publish(plan_step_msg)
 
         dry_run = self.get_parameter('dry_run').get_parameter_value().bool_value
-        velocity_command = RobotCommandBuilder.synchro_velocity_command(v_x=v_x_target, v_y=v_y_target, v_rot=0.0, frame_name=VISION_FRAME_NAME)
+        velocity_command = RobotCommandBuilder.synchro_velocity_command(v_x=v_x_target, v_y=v_y_target, v_rot=0.0)
         if dry_run:
             self.get_logger().info(f"[DRY RUN] Action: {action}  Vel X: {v_x_target:.3f}  Vel Y: {v_y_target:.3f}  (no command sent)")
         else:
