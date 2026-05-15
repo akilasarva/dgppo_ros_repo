@@ -831,6 +831,9 @@ input.r{accent-color:var(--lidar)}
     <hr>
     <div class="row"><span class="k">SPOT YAW</span><span class="v" id="i-yw">—</span></div>
     <hr>
+    <div class="row"><span class="k" style="color:var(--topk)">TOP-K PTS</span><span class="v" style="color:var(--topk);font-size:9px">(x right, y fwd)</span></div>
+    <div id="i-topk"></div>
+    <hr>
     <div class="row"><span class="k">Mode</span><span class="v" id="i-md">—</span></div>
     <div class="row">
       <span class="k" style="color:var(--sliceZ)">Z slice (→ cluster)</span>
@@ -1225,6 +1228,27 @@ function panel(d){
     }
   }
   if(d.spot_yaw!=null)$t('i-yw',(d.spot_yaw*180/Math.PI).toFixed(1)+'°');
+  const topkEl=document.getElementById('i-topk');
+  if(topkEl){
+    if(d.processed_ranges&&d.processed_ranges.length){
+      const n=d.processed_ranges.length;
+      const maxR=(d.filter_cfg&&d.filter_cfg.max_range)||8.0;
+      const hits=[];
+      for(let i=0;i<n;i++){
+        const r=d.processed_ranges[i];
+        if(r<maxR*0.999){const a=2*Math.PI*i/n;hits.push({r,a});}
+      }
+      const sorted=[...hits].sort((a,b)=>a.r-b.r).slice(0,TOP_K);
+      topkEl.innerHTML=sorted.map((h,i)=>{
+        const px=(h.r*Math.sin(h.a)).toFixed(2);
+        const py=(h.r*Math.cos(h.a)).toFixed(2);
+        return `<div class="row"><span class="k" style="color:var(--topk)">  pt ${i}</span>`+
+               `<span class="v" style="color:var(--topk);font-family:monospace">(${px}, ${py})</span></div>`;
+      }).join('')||'<div class="row"><span class="v" style="color:var(--dim)">none</span></div>';
+    }else{
+      topkEl.innerHTML='<div class="row"><span class="v" style="color:var(--dim)">waiting...</span></div>';
+    }
+  }
   const cfg=d.filter_cfg||{};
   const mStr=cfg.use_intensity?'Intensity + Z → clustering':'Z height → clustering';
   $t('i-md',mStr,cfg.use_intensity?'#ff44cc':'#ffcc00');
