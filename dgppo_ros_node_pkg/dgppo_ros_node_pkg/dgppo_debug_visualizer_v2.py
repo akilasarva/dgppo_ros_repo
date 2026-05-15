@@ -604,6 +604,7 @@ def run_desktop(state: DebugState):
                         color=C_DIM, ha='center', va='center', fontsize=10)
 
         # ── Processed-range beams (90° CW rotation applied) ──────────────
+        topk = np.empty((0, 2))
         if ranges is not None and len(ranges) > 0:
             n      = len(ranges)
             angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
@@ -701,6 +702,14 @@ def run_desktop(state: DebugState):
         if spot_yaw is not None:
             rows += [('', '', ''), ('SPOT YAW', f'{math.degrees(spot_yaw):+.1f}°', C_HEADING)]
         rows.append(('', '', ''))
+
+        rows.append(('', '', ''))
+        if len(topk):
+            rows.append(('TOP-K PTS', f'(x, y) body frame', C_TOPK))
+            for i, (px, py) in enumerate(topk):
+                rows.append((f'  pt {i}', f'({px:.2f}, {py:.2f})', C_TOPK))
+        else:
+            rows.append(('TOP-K PTS', 'none', C_DIM))
 
         mode_lbl = 'Intensity + Z → clustering' if cfg['use_intensity'] else 'Z height → clustering'
         rows += [('Mode',     mode_lbl,                                               C_TOPK),
