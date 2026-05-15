@@ -15,9 +15,12 @@ from typing import NamedTuple, Tuple, Optional, List, Dict
 from geometry_msgs.msg import Twist
 from std_msgs.msg import Int16, Int32, Float32MultiArray
 from nav_msgs.msg import Odometry
+from std_srvs.srv import Trigger
 
 # Boston Dynamics
 import bosdyn.client.util
+import bosdyn.client.lease
+from bosdyn.client.exceptions import LeaseUseError
 from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient)
 from bosdyn.client.frame_helpers import (
     BODY_FRAME_NAME,
@@ -103,6 +106,7 @@ class DGPPOROSNode(Node):
         self.latest_predicted_cluster_id = None
         self.latest_terrain_id = 1  # Grass default until /current_terrain publishes
         self.next_cluster_bonus_awarded = jnp.zeros(self.env_instance.num_agents, dtype=jnp.bool_)
+        self._tablet_has_lease = False  # True while tablet holds lease; plan pauses
 
         self.is_first_run = True
 
@@ -143,6 +147,8 @@ class DGPPOROSNode(Node):
         self.spot_yaw_pub = self.create_publisher(Float32MultiArray, '/dgppo_spot_yaw', 10)
         self.spot_act_pub = self.create_publisher(Float32MultiArray, '/dgppo_action', 10)
         self.plan_step_pub = self.create_publisher(Int32, '/dgppo_plan_step', 10)
+
+        self._take_lease_srv = self.create_service(Trigger, '/dgppo_take_lease', self._take_lease_callback)
 
         self.timer = self.create_timer(0.1, self.control_loop)
 
@@ -200,6 +206,22 @@ class DGPPOROSNode(Node):
         yaw = tform_body_in_vision.angle
 
         return pos, vel, yaw
+
+    def _take_lease_callback(self, request, response):
+        """Service handler: reclaim the lease from the tablet and resume the plan."""
+        try:
+            self.lease_keep_alive.shutdown()
+            self.lease_client.take()
+            self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(self.lease_client)
+            self._tablet_has_lease = False
+            self.get_logger().info("Lease reclaimed from tablet. Plan resuming.")
+            response.success = True
+            response.message = "Lease reclaimed. Plan resuming."
+        except Exception as e:
+            self.get_logger().error(f"Failed to reclaim lease: {e}")
+            response.success = False
+            response.message = f"Failed to reclaim lease: {e}"
+        return response
 
     def _get_model_step(self, model_dir):
         model_path = os.path.join(model_dir, "models")
@@ -272,7 +294,10 @@ class DGPPOROSNode(Node):
         if self.current_plan_step_index >= len(self.plan_sequence):
             self.get_logger().info("High-level plan is complete. Stopping control loop.")
             if not self.get_parameter('dry_run').get_parameter_value().bool_value:
-                self.command_client.robot_command(command=RobotCommandBuilder.stop_command())
+                try:
+                    self.command_client.robot_command(command=RobotCommandBuilder.stop_command())
+                except (LeaseUseError, bosdyn.client.lease.NotActiveLeaseError) as e:
+                    self.get_logger().warning(f"Could not send stop command — tablet may hold lease. ({type(e).__name__})")
             self.timer.cancel()
             return
 
@@ -300,6 +325,28 @@ class DGPPOROSNode(Node):
 
         mapped_current_cluster = self._map_cluster_id(current_cluster_id)
         self.get_logger().info(f"current before:{current_cluster_id}, mapped before check: {mapped_current_cluster}")
+        if self._tablet_has_lease:
+            self.get_logger().info(
+                "Tablet holds lease — plan paused, state updates running. "
+                "To reclaim: ros2 service call /dgppo_take_lease std_srvs/srv/Trigger '{}'",
+                throttle_duration_sec=3.0
+            )
+            # Still read and publish state so we stay current.
+            try:
+                pos, vel, yaw = self._get_spot_state()
+                yaw_msg = Float32MultiArray()
+                yaw_msg.data = [yaw]
+                self.spot_yaw_pub.publish(yaw_msg)
+                sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x
+                sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y
+                sim_vel_x = -vel.y / self.scale_2d_3d
+                sim_vel_y =  vel.x / self.scale_2d_3d
+                self.latest_agent_state = jnp.expand_dims(
+                    jnp.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=jnp.float32), axis=0
+                )
+            except Exception as e:
+                self.get_logger().warning(f"State read failed while paused: {e}", throttle_duration_sec=2.0)
+            return
         if mapped_current_cluster == expected_next_cluster:
             self.current_plan_step_index += 1
             if self.current_plan_step_index >= len(self.plan_sequence):
@@ -417,9 +464,19 @@ class DGPPOROSNode(Node):
         if dry_run:
             self.get_logger().info(f"[DRY RUN] Action: {action}  Vel X: {v_x_target:.3f}  Vel Y: {v_y_target:.3f}  (no command sent)")
         else:
-            self.command_client.robot_command(command=velocity_command, end_time_secs=time.time() + 0.5)
-            self.get_logger().info(f"Action: {action}")
-            self.get_logger().info(f"Vel X: {v_x_target}, Vel Y: {v_y_target}")
+            try:
+                self.command_client.robot_command(command=velocity_command, end_time_secs=time.time() + 0.5)
+                self._tablet_has_lease = False  # command succeeded — we still hold the lease
+                self.get_logger().info(f"Action: {action}")
+                self.get_logger().info(f"Vel X: {v_x_target}, Vel Y: {v_y_target}")
+            except (LeaseUseError, bosdyn.client.lease.NotActiveLeaseError) as e:
+                if not self._tablet_has_lease:
+                    self.get_logger().warning(
+                        f"Tablet has taken the lease — plan paused, state updates continue. "
+                        f"To reclaim: ros2 service call /dgppo_take_lease std_srvs/srv/Trigger '{{}}' "
+                        f"({type(e).__name__})"
+                    )
+                self._tablet_has_lease = True
 
     def agent_step_euler(self, agent_states: AgentState, action: Action) -> AgentState:
         """Velocity control: action in [-1,1] is directly the velocity command (scaled to ±0.5)."""
