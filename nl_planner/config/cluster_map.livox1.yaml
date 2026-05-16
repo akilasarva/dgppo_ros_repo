@@ -1,0 +1,26 @@
+# Per-environment semantic-mode <-> HDBSCAN-cluster-id taxonomy.
+#
+# Source labels:
+#   clustering/clustering/encoder_weights/livox1/cluster_id_to_label_livox1.json
+#     {-1: "Along Wall", 0,1,2: "In Intersection", 3,4: "Open Space",
+#      5,6,8,9,10,11,12: "In Corridor", 7: "Enter Corridor"}
+#
+# Notes:
+# - Prompt-1 vocabulary is more granular than the clustering training
+#   ("Intersection: Approach/Enter" vs "Enter Corridor"). The YAML reconciles
+#   the two. Multiple semantic modes mapping to the same cluster id set is
+#   allowed; the executor uses the first listed id as the canonical scalar
+#   start_cluster / goal_cluster, and treats any listed id as "in this mode".
+# - Update this file (and the source JSON) when the clustering model is
+#   retrained for a new environment.
+
+environment: livox1
+source: clustering/clustering/encoder_weights/livox1/cluster_id_to_label_livox1.json
+
+modes:
+  "Road: On":                      [5, 6, 8, 9, 10, 11, 12]
+  "Intersection: Approach/Enter":  [7]
+  "Intersection: In":              [0, 1, 2]
+  "Intersection: Exit":            [7]
+  "Open Space":                    [3, 4]
+  "Along Wall":                    [-1]

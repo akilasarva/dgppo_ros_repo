@@ -31,9 +31,20 @@ import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Int16, String
 from sensor_msgs.msg import Image
+from std_srvs.srv import Trigger
 import openai
+
+
+# Transient-local QoS so a late subscriber still receives the most recent plan.
+LATCHED_QOS = QoSProfile(
+    depth=1,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    reliability=ReliabilityPolicy.RELIABLE,
+    history=HistoryPolicy.KEEP_LAST,
+)
 
 
 def imgmsg_to_bgr(msg: Image) -> np.ndarray:
@@ -89,12 +100,14 @@ class BrainController(Node):
             raise SystemExit(1)
 
         # --- Internal state (guarded by self._lock) ---
-        self._lock            = threading.Lock()
-        self.current_step_idx = 0
-        self.state            = State.NAVIGATING
-        self.current_cluster  = None
-        self.latest_image     = None
-        self._vlm_busy        = False
+        self._lock              = threading.Lock()
+        self.current_step_idx   = 0
+        self.state              = State.NAVIGATING
+        self.current_cluster    = None
+        self.latest_image       = None
+        self._vlm_busy          = False
+        # Latched plan payload deposited by nl_planner's executor.
+        self._pending_plan_json = None
 
         # --- OpenAI client ---
         api_key = os.getenv("OPENAI_API_KEY")
@@ -103,8 +116,17 @@ class BrainController(Node):
         self._openai = openai.OpenAI(api_key=api_key)
 
         # --- Subscribers ---
-        self.create_subscription(Int16, "/predicted_cluster", self._cluster_cb, 10)
-        self.create_subscription(Image, self.image_topic,     self._image_cb,   10)
+        self.create_subscription(Int16, "/predicted_cluster",   self._cluster_cb,       10)
+        self.create_subscription(Image, self.image_topic,       self._image_cb,         10)
+        # nl_planner pipe: latched plan JSON + Trigger to swap it in atomically.
+        self.create_subscription(
+            String, "/brain/incoming_plan", self._incoming_plan_cb, LATCHED_QOS,
+        )
+
+        # --- Services ---
+        self._load_plan_srv = self.create_service(
+            Trigger, "/brain/load_plan", self._load_plan_cb,
+        )
 
         # --- Publisher ---
         self._state_pub = self.create_publisher(String, "/brain/state", 10)
@@ -167,6 +189,56 @@ class BrainController(Node):
             self.latest_image = imgmsg_to_bgr(msg)
         except Exception as exc:
             self.get_logger().warn(f"Image conversion failed: {exc}", throttle_duration_sec=5.0)
+
+    # ------------------------------------------------------------------
+    # nl_planner hot-swap (latched topic + Trigger service)
+    # ------------------------------------------------------------------
+
+    def _incoming_plan_cb(self, msg: String):
+        """Cache the most recent NavPlan JSON. /brain/load_plan reads it."""
+        with self._lock:
+            self._pending_plan_json = msg.data
+        self.get_logger().info(
+            f"[INCOMING PLAN] received {len(msg.data)} bytes on /brain/incoming_plan "
+            f"(call /brain/load_plan to swap it in)"
+        )
+
+    def _load_plan_cb(self, request: Trigger.Request, response: Trigger.Response) -> Trigger.Response:
+        """Atomically replace the active plan with the latched payload."""
+        with self._lock:
+            payload = self._pending_plan_json
+            if not payload:
+                response.success = False
+                response.message = "no plan payload on /brain/incoming_plan yet"
+                return response
+            try:
+                plan_data = json.loads(payload)
+                new_steps = plan_data["steps"]
+                if not new_steps:
+                    raise ValueError("plan has no steps")
+                new_labels = {int(k): v for k, v in plan_data.get("cluster_labels", {}).items()}
+            except Exception as exc:
+                response.success = False
+                response.message = f"failed to parse incoming plan: {exc}"
+                self.get_logger().error(response.message)
+                return response
+
+            self.steps              = new_steps
+            self._cluster_labels    = new_labels
+            self.current_step_idx   = 0
+            self.state              = State.NAVIGATING
+            self._vlm_busy          = False
+            plan_name               = plan_data.get("plan_name", "Unnamed")
+            self._publish_state()
+
+        self.get_logger().info(
+            f"[LOAD PLAN] swapped in {plan_name!r} with {len(new_steps)} step(s); "
+            f"state=NAVIGATING from step 0"
+        )
+        print(f"\n{'=' * 60}\n[BRAIN] HOT-SWAP plan: {plan_name} ({len(new_steps)} steps)\n{'=' * 60}\n")
+        response.success = True
+        response.message = f"loaded {plan_name!r} ({len(new_steps)} steps)"
+        return response
 
     def _vlm_timer_cb(self):
         with self._lock:

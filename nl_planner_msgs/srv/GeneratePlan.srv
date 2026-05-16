@@ -1,0 +1,14 @@
+# Request: free-text English mission.
+string mission
+---
+# Response: ok=true means plan was accepted by both verifiers (or by the
+# subset gated on in nl_planner.yaml). On failure, error contains the last
+# attempt's failure_reason and plan_json / stl_formula are empty.
+bool ok
+string error
+# Tree-shaped NavPlan JSON (schemas.NavPlan). The executor walks this at runtime.
+string plan_json
+# Final accepted STL formula (single LaTeX-ish string covering all branches).
+string stl_formula
+# Total LLM round-trips it took to converge (including retries).
+int32 attempts

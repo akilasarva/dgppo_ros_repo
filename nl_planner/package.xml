@@ -1,9 +1,13 @@
 <?xml version="1.0"?>
 <?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
 <package format="3">
-  <name>brain</name>
+  <name>nl_planner</name>
   <version>0.0.0</version>
-  <description>Brain controller — cluster-based navigation with VLM perception cues</description>
+  <description>
+    English natural-language mission to STL + cluster-plan pipeline. Generates,
+    verifies, and dispatches branch-shaped navigation plans to the brain
+    controller.
+  </description>
   <maintainer email="akilasar@mit.edu">akilasar</maintainer>
   <license>MIT</license>
 
@@ -11,7 +15,12 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
-  <exec_depend>python3-cv-bridge</exec_depend>
+  <exec_depend>nl_planner_msgs</exec_depend>
+
+  <!-- Pure-python deps; managed in setup.py install_requires. Listed here so
+       rosdep / colcon can warn but do not block. -->
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-pydantic</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

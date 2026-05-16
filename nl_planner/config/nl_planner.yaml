@@ -1,0 +1,25 @@
+# Default ROS parameters for nl_planner.launch.py.
+# Override on the command line, e.g.:
+#   ros2 launch nl_planner nl_planner.launch.py taxonomy:=/abs/path/cluster_map.livox1.yaml
+
+nl_planner:
+  ros__parameters:
+    # Resolved at launch time from the 'taxonomy' launch arg.
+    taxonomy_path: ""
+    # pydantic-ai provider:model id. The OPENAI_API_KEY env var is consumed
+    # by the underlying openai client.
+    model: "openai:gpt-4o-mini"
+    # Hard cap on generator retries. Each retry costs ~3 LLM calls (gen +
+    # syntax + tripartite), so 3 attempts ~= 9 calls worst case.
+    max_attempts: 3
+    verify_syntax: true
+    verify_tripartite: true
+
+nl_planner_executor:
+  ros__parameters:
+    taxonomy_path: ""
+    # OpenAI vision model used at branch decision points.
+    vlm_model: "gpt-4o-mini"
+    # Should match brain_controller's image_topic param.
+    image_topic: "/hamilton/hamilton_zed/rgb/image_rect_color"
+    brain_load_plan_timeout_s: 5.0
