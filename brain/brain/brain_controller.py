@@ -8,17 +8,26 @@ visual cues) and drives a state machine that advances steps when:
   - the VLM confirms the required visual cue is visible (if one is specified).
 
 Subscribed topics:
-  /predicted_cluster  (std_msgs/Int16)   — from live_cluster_inference_node
-  <image_topic>       (sensor_msgs/Image) — camera feed from the bag
+  /predicted_cluster   (std_msgs/Int16)    — from live_cluster_inference_node
+  <image_topic>        (sensor_msgs/Image) — camera feed from the bag
+  /brain/incoming_plan (std_msgs/String, transient_local) — latched JSON plan
+                                                            published by nl_planner.
+                                                            Call /brain/load_plan
+                                                            to swap it in.
 
 Published topics:
-  /brain/state        (std_msgs/String)   — JSON snapshot of current state
+  /brain/state         (std_msgs/String)   — JSON snapshot of current state
+
+Services:
+  /brain/load_plan     (std_srvs/Trigger)  — atomically swap the active plan
+                                              with the latched payload from
+                                              /brain/incoming_plan.
 
 ROS 2 parameters:
-  plan_path           path to plan.json        (default: plan.json)
-  image_topic         camera image topic        (default: /camera/image_raw)
-  vlm_check_interval  seconds between VLM polls (default: 2.0)
-  vlm_model           OpenAI model to use       (default: gpt-4o-mini)
+  plan_path            path to plan.json        (default: plan.json)
+  image_topic          camera image topic        (default: /camera/image_raw)
+  vlm_check_interval   seconds between VLM polls (default: 2.0)
+  vlm_model            OpenAI model to use       (default: gpt-4o-mini)
 """
 
 import os
