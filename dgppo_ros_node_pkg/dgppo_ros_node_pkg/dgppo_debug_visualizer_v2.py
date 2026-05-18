@@ -55,10 +55,11 @@ from rclpy.qos import qos_profile_sensor_data
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-NUM_RANGES  = 72
-TOP_K       = 8
-HISTORY_LEN = 20
-WEB_PORT    = 8765
+NUM_RANGES   = 72
+TOP_K        = 8
+HISTORY_LEN  = 20
+VEL_HIST_LEN = 150   # ~12 s at 80 ms update rate
+WEB_PORT     = 8765
 
 TERRAIN_NAMES = {0: "Road", 1: "Grass", 2: "Sidewalk"}
 CLUSTER_NAMES = {0: "open_space", 1: "approach_bridge", 2: "on_bridge", 3: "exit_bridge"}
@@ -163,6 +164,13 @@ class DebugState:
         self.raw_frame_jpg   = None   # bytes: JPEG of raw ZED image
         self.hsv_frame_jpg   = None   # bytes: JPEG of HSV-segmented image
         self.state_debug     = None   # 12-float transform debug from /dgppo_state_debug
+        # velocity time-series (cmd vs reported, vision frame)
+        self._vel_t0    = None
+        self.vel_times   = deque(maxlen=VEL_HIST_LEN)
+        self.cmd_vx_hist = deque(maxlen=VEL_HIST_LEN)
+        self.cmd_vy_hist = deque(maxlen=VEL_HIST_LEN)
+        self.rep_vx_hist = deque(maxlen=VEL_HIST_LEN)
+        self.rep_vy_hist = deque(maxlen=VEL_HIST_LEN)
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -194,7 +202,16 @@ class DebugState:
         with self._lock: self.hsv_frame_jpg = jpg
 
     def set_state_debug(self, data):
-        with self._lock: self.state_debug = data
+        with self._lock:
+            self.state_debug = data
+            now = time.time()
+            if self._vel_t0 is None:
+                self._vel_t0 = now
+            self.vel_times.append(now - self._vel_t0)
+            self.cmd_vx_hist.append(data[10])
+            self.cmd_vy_hist.append(data[11])
+            self.rep_vx_hist.append(data[2])
+            self.rep_vy_hist.append(data[3])
 
     def get_raw_frame(self):
         with self._lock: return self.raw_frame_jpg
@@ -219,6 +236,11 @@ class DebugState:
                                    if self.raw_cloud is not None else None,
                 filter_cfg       = self.filter_cfg.get(),
                 state_debug      = self.state_debug,
+                vel_times        = list(self.vel_times),
+                cmd_vx_hist      = list(self.cmd_vx_hist),
+                cmd_vy_hist      = list(self.cmd_vy_hist),
+                rep_vx_hist      = list(self.rep_vx_hist),
+                rep_vy_hist      = list(self.rep_vy_hist),
             )
 
 
@@ -395,7 +417,7 @@ def _build_figure():
     fig.suptitle('DGPPO Policy Debugger  v2', color=C_TEXT, fontsize=14,
                  y=0.985, fontweight='bold')
 
-    ax = fig.add_axes([0.02, 0.17, 0.37, 0.79])
+    ax = fig.add_axes([0.02, 0.36, 0.37, 0.60])
     ax.set_facecolor(C_PANEL)
     lim = 9.5
     ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_aspect('equal')
@@ -431,13 +453,35 @@ def _build_figure():
               edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=7.5)
 
     if _HAS_3D:
-        ax3d = fig.add_axes([0.42, 0.17, 0.24, 0.79], projection='3d')
+        ax3d = fig.add_axes([0.42, 0.36, 0.24, 0.60], projection='3d')
         _style_3d(ax3d)
     else:
         ax3d = None
 
-    ax_info = fig.add_axes([0.69, 0.17, 0.29, 0.79])
+    ax_info = fig.add_axes([0.69, 0.36, 0.29, 0.60])
     ax_info.set_facecolor(C_PANEL); ax_info.axis('off')
+
+    # Velocity time-series: cmd (red) vs reported (blue) in vision frame
+    def _vel_ax(left, title):
+        a = fig.add_axes([left, 0.10, 0.17, 0.21])
+        a.set_facecolor(C_PANEL)
+        a.set_title(title, color=C_TEXT, fontsize=8, pad=3)
+        a.set_xlabel('time  s', color=C_DIM, fontsize=6)
+        a.set_ylabel('m/s', color=C_DIM, fontsize=6)
+        a.tick_params(colors=C_DIM, labelsize=6)
+        a.axhline(0, color=C_GRID, lw=0.6, ls='--')
+        for s in a.spines.values(): s.set_color(C_GRID)
+        return a
+
+    ax_vx = _vel_ax(0.02, 'vx  (vision frame)')
+    ax_vy = _vel_ax(0.21, 'vy  (vision frame)')
+    leg_patches = [
+        mpatches.Patch(color='#ff4466', label='cmd'),
+        mpatches.Patch(color='#44aaff', label='reported'),
+    ]
+    for _a in (ax_vx, ax_vy):
+        _a.legend(handles=leg_patches, loc='upper left', facecolor=C_BG,
+                  edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=6)
 
     # Slider row — 6 sliders + mode toggle
     s_h, s_y, g = 0.028, 0.022, 0.087
@@ -486,14 +530,20 @@ def _build_figure():
                      rmin=sl_rmin, rmax=sl_rmax, mode=rb_mode)
     textboxes = dict(zlo=tb_zlo, zhi=tb_zhi, ilo=tb_ilo, ihi=tb_ihi,
                      rmin=tb_rmin, rmax=tb_rmax)
-    return fig, ax, ax3d, ax_info, sliders, textboxes
+    return fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy
 
 
 def run_desktop(state: DebugState):
-    fig, ax, ax3d, ax_info, sliders, textboxes = _build_figure()
+    fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
     H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
          'trail': [], 'texts': []}
+
+    _empty: list = []
+    ln_cmd_vx, = ax_vx.plot(_empty, _empty, color='#ff4466', lw=1.5)
+    ln_rep_vx, = ax_vx.plot(_empty, _empty, color='#44aaff', lw=1.5)
+    ln_cmd_vy, = ax_vy.plot(_empty, _empty, color='#ff4466', lw=1.5)
+    ln_rep_vy, = ax_vy.plot(_empty, _empty, color='#44aaff', lw=1.5)
 
     def _apply_filter_cfg():
         state.filter_cfg.set(
@@ -763,6 +813,28 @@ def run_desktop(state: DebugState):
                               fontfamily='monospace')
             H['texts'].extend([t1, t2]); y -= dy
 
+        # ── Velocity time-series plots ────────────────────────────────────────
+        t_arr = np.array(snap.get('vel_times', []))
+        if len(t_arr) >= 2:
+            cmd_vx = np.array(snap['cmd_vx_hist'])
+            rep_vx = np.array(snap['rep_vx_hist'])
+            cmd_vy = np.array(snap['cmd_vy_hist'])
+            rep_vy = np.array(snap['rep_vy_hist'])
+
+            ln_cmd_vx.set_data(t_arr, cmd_vx)
+            ln_rep_vx.set_data(t_arr, rep_vx)
+            ln_cmd_vy.set_data(t_arr, cmd_vy)
+            ln_rep_vy.set_data(t_arr, rep_vy)
+
+            t_min, t_max = t_arr[0], t_arr[-1]
+            t_span = max(t_max - t_min, 1.0)
+            for _a, _cv, _rv in ((ax_vx, cmd_vx, rep_vx), (ax_vy, cmd_vy, rep_vy)):
+                _a.set_xlim(t_min, t_min + t_span)
+                all_vals = np.concatenate([_cv, _rv])
+                v_lo, v_hi = all_vals.min(), all_vals.max()
+                margin = max((v_hi - v_lo) * 0.15, 0.05)
+                _a.set_ylim(v_lo - margin, v_hi + margin)
+
         fig.canvas.draw_idle()
 
     ani = FuncAnimation(fig, update, interval=80, cache_frame_data=False)
@@ -831,6 +903,8 @@ input.r{accent-color:var(--lidar)}
 .rsz-h:hover,.rsz-h.rsz-act{background:var(--act)}
 .rsz-v{height:5px;cursor:row-resize;background:var(--grid);flex-shrink:0;transition:background .15s}
 .rsz-v:hover,.rsz-v.rsz-act{background:var(--act)}
+#vel-area{background:var(--panel);border-top:1px solid var(--grid);padding:4px 10px;height:130px;flex-shrink:0;overflow:hidden;display:flex;align-items:stretch}
+#vcv{flex:1;display:block}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
@@ -901,6 +975,8 @@ input.r{accent-color:var(--lidar)}
   </div>
 </div>
 <div class="rsz-v" id="rsz4"></div>
+<div id="vel-area"><canvas id="vcv"></canvas></div>
+<div class="rsz-v" id="rsz5"></div>
 <div id="sliders">
   <h4>LIDAR FILTER  ·  publishes → /lidar_filter_config every 200 ms</h4>
   <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start">
@@ -977,6 +1053,60 @@ function toggleTheme(){
   if(lastData)draw(lastData);
 }
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const vcv=document.getElementById('vcv'), vctx=vcv.getContext('2d');
+
+function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title){
+  ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
+  ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.7;ctx2.strokeRect(x0,y0,w,h);
+  const pad={l:34,r:6,t:16,b:14};
+  const pw=w-pad.l-pad.r, ph=h-pad.t-pad.b;
+  if(pw<10||ph<10)return;
+  ctx2.fillStyle='#8b949e';ctx2.font='9px monospace';ctx2.textAlign='center';
+  ctx2.fillText(title,x0+w/2,y0+11);
+  const n=times.length;
+  if(n<2){ctx2.fillText('waiting...',x0+w/2,y0+h/2);return;}
+  const t0=times[0],tSpan=Math.max(times[n-1]-t0,1.0);
+  const allV=[...cmdArr,...repArr];
+  let vMin=Math.min(...allV),vMax=Math.max(...allV);
+  const mg=Math.max((vMax-vMin)*0.15,0.05);vMin-=mg;vMax+=mg;
+  const vSpan=vMax-vMin||1;
+  const tx=t=>x0+pad.l+(t-t0)/tSpan*pw;
+  const ty=v=>y0+pad.t+(1-(v-vMin)/vSpan)*ph;
+  // zero line
+  const zy=ty(0);
+  if(zy>y0+pad.t&&zy<y0+pad.t+ph){
+    ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.6;ctx2.setLineDash([3,4]);
+    ctx2.beginPath();ctx2.moveTo(x0+pad.l,zy);ctx2.lineTo(x0+pad.l+pw,zy);ctx2.stroke();
+    ctx2.setLineDash([]);
+  }
+  // y labels
+  ctx2.fillStyle='#8b949e';ctx2.font='8px monospace';ctx2.textAlign='right';
+  ctx2.fillText(vMax.toFixed(2),x0+pad.l-2,y0+pad.t+4);
+  ctx2.fillText(vMin.toFixed(2),x0+pad.l-2,y0+pad.t+ph);
+  if(zy>y0+pad.t+8&&zy<y0+pad.t+ph-4)ctx2.fillText('0',x0+pad.l-2,zy+3);
+  // lines
+  function line(arr,col){
+    if(!arr.length)return;
+    ctx2.strokeStyle=col;ctx2.lineWidth=1.5;ctx2.setLineDash([]);
+    ctx2.beginPath();
+    arr.forEach((v,i)=>{const px=tx(times[i]),py=ty(v);i===0?ctx2.moveTo(px,py):ctx2.lineTo(px,py);});
+    ctx2.stroke();
+  }
+  line(repArr,'#44aaff');line(cmdArr,'#ff4466');
+  // legend
+  ctx2.font='8px monospace';ctx2.textAlign='left';
+  ctx2.fillStyle='#ff4466';ctx2.fillText('cmd', x0+pad.l+2,y0+pad.t+10);
+  ctx2.fillStyle='#44aaff';ctx2.fillText('rep', x0+pad.l+28,y0+pad.t+10);
+}
+function drawVelChart(d){
+  const W=vcv.width,H=vcv.height;
+  if(W<20||H<20)return;
+  vctx.fillStyle=C.bg;vctx.fillRect(0,0,W,H);
+  const half=Math.floor(W/2)-3;
+  const times=d.vel_times||[];
+  drawMiniChart(vctx,0,0,half,H,times,d.cmd_vx_hist||[],d.rep_vx_hist||[],'vx (vision frame)');
+  drawMiniChart(vctx,half+6,0,half,H,times,d.cmd_vy_hist||[],d.rep_vy_hist||[],'vy (vision frame)');
+}
 
 function setMode(m){
   useIntensity=(m==='i');
@@ -1323,7 +1453,7 @@ async function loop(){
   while(true){
     try{
       const r=await fetch('/api/state');
-      if(r.ok){const d=await r.json();lastData=d;draw(d);panel(d);updateThree(d);
+      if(r.ok){const d=await r.json();lastData=d;draw(d);panel(d);updateThree(d);drawVelChart(d);
                badge.textContent='live';badge.className='live';}
     }catch(e){badge.textContent='disconnected';badge.className='';}
     await new Promise(r=>setTimeout(r,80));
@@ -1334,6 +1464,8 @@ function resize(){
   const s=Math.min(w.clientWidth-12,w.clientHeight-12,700);
   cv.width=s;cv.height=s;if(lastData)draw(lastData);
   resizeThree();
+  const va=document.getElementById('vel-area');
+  if(va){vcv.width=va.clientWidth-20;vcv.height=va.clientHeight-8;if(lastData)drawVelChart(lastData);}
 }
 function initSliders(cfg){
   if(!cfg)return;
@@ -1375,7 +1507,8 @@ function makeSplitter(el,a,b,axis){
 makeSplitter(document.getElementById('rsz1'),document.getElementById('cw'),document.getElementById('elev-wrap'),'h');
 makeSplitter(document.getElementById('rsz2'),document.getElementById('elev-wrap'),document.getElementById('info'),'h');
 makeSplitter(document.getElementById('rsz3'),document.querySelector('main'),document.getElementById('cameras'),'v');
-makeSplitter(document.getElementById('rsz4'),document.getElementById('cameras'),document.getElementById('sliders'),'v');
+makeSplitter(document.getElementById('rsz4'),document.getElementById('cameras'),document.getElementById('vel-area'),'v');
+makeSplitter(document.getElementById('rsz5'),document.getElementById('vel-area'),document.getElementById('sliders'),'v');
 window.addEventListener('resize',resize);
 fetch('/api/state').then(r=>r.json()).then(d=>{initSliders(d.filter_cfg);resize();loop();}).catch(()=>{resize();loop();});
 </script>
@@ -1433,6 +1566,11 @@ def run_web(state: DebugState, port=WEB_PORT):
             cloud_3d         = cloud_3d,
             filter_cfg       = snap['filter_cfg'],
             state_debug      = snap.get('state_debug'),
+            vel_times        = snap.get('vel_times', []),
+            cmd_vx_hist      = snap.get('cmd_vx_hist', []),
+            cmd_vy_hist      = snap.get('cmd_vy_hist', []),
+            rep_vx_hist      = snap.get('rep_vx_hist', []),
+            rep_vy_hist      = snap.get('rep_vy_hist', []),
         ))
 
     # Build a "no signal" placeholder JPEG once at startup
