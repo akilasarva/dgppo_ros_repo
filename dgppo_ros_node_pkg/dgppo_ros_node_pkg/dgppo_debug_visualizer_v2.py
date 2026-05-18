@@ -409,6 +409,45 @@ def _estimate_lag_ms(t_arr, cmd, rep):
     return lag_s * 1000.0 if 0.0 <= lag_s <= 3.0 else None
 
 
+def _detect_step_metrics(t_arr, cmd_vx, rep_vx):
+    """Detect pure transport delay and 0→90% rise time from the most recent
+    rising edge in cmd_vx.  Returns (delay_ms, rise_ms); either may be None."""
+    if len(t_arr) < 5:
+        return None, None
+    STEP_ON = 0.25   # cmd must cross this threshold upward to count as a step
+    REP_THR = 0.02   # first detectable motion in reported vel
+
+    # Find most recent rising edge in cmd
+    step_idx = None
+    for i in range(len(cmd_vx) - 1, 0, -1):
+        if cmd_vx[i] >= STEP_ON and cmd_vx[i - 1] < STEP_ON:
+            step_idx = i
+            break
+    if step_idx is None:
+        return None, None
+
+    t_step = t_arr[step_idx]
+    target = float(np.max(cmd_vx[step_idx:]))  # commanded level after step
+
+    # Pure delay: first rep sample above REP_THR after the step edge
+    delay_ms = None
+    for i in range(step_idx, len(rep_vx)):
+        if rep_vx[i] > REP_THR:
+            delay_ms = (t_arr[i] - t_step) * 1000.0
+            break
+
+    # Rise time: step edge → rep reaches 90 % of target
+    rise_ms = None
+    if target > 0.1:
+        target_90 = target * 0.9
+        for i in range(step_idx, len(rep_vx)):
+            if rep_vx[i] >= target_90:
+                rise_ms = (t_arr[i] - t_step) * 1000.0
+                break
+
+    return delay_ms, rise_ms
+
+
 # ── Desktop visualizer ────────────────────────────────────────────────────────
 
 def _style_3d(ax3d):
@@ -751,6 +790,7 @@ def run_desktop(state: DebugState):
         rep_vy  = np.array(snap['rep_vy_hist']) if has_vel else np.array([])
         lag_vx  = _estimate_lag_ms(t_arr, cmd_vx, rep_vx) if has_vel else None
         lag_vy  = _estimate_lag_ms(t_arr, cmd_vy, rep_vy) if has_vel else None
+        delay_ms, rise_ms = _detect_step_metrics(t_arr, cmd_vx, rep_vx) if has_vel else (None, None)
 
         def _lag_row(lbl, lag):
             if lag is not None:
@@ -775,7 +815,16 @@ def run_desktop(state: DebugState):
         else:
             rows.append(('cmd/rep', 'waiting...', C_DIM))
         rows += [_lag_row('xcorr lag vx', lag_vx),
-                 _lag_row('xcorr lag vy', lag_vy),
+                 _lag_row('xcorr lag vy', lag_vy)]
+
+        def _step_row(lbl, ms, lo, hi):
+            if ms is not None:
+                c = C_LIDAR if ms < lo else '#ffaa00' if ms < hi else C_WARN
+                return (lbl, f'{ms:.0f} ms', c)
+            return (lbl, '—', C_DIM)
+
+        rows += [_step_row('pure delay',  delay_ms, 300,  600),
+                 _step_row('rise 0→90%',  rise_ms,  500,  900),
                  ('', '', '')]
 
         rows += [('TERRAIN', TERRAIN_NAMES.get(tid, f'T{tid}'), tc), ('', '', '')]
@@ -971,6 +1020,8 @@ input.r{accent-color:var(--lidar)}
     <div class="row"><span class="k" style="color:#ffaa44">err vx/vy m/s</span><span class="v" id="i-evx" style="color:#ffaa44">—</span></div>
     <div class="row"><span class="k">xcorr lag vx</span><span class="v" id="i-lgvx">—</span></div>
     <div class="row"><span class="k">xcorr lag vy</span><span class="v" id="i-lgvy">—</span></div>
+    <div class="row"><span class="k">pure delay</span><span class="v" id="i-dly">—</span></div>
+    <div class="row"><span class="k">rise 0→90%</span><span class="v" id="i-rse">—</span></div>
     <hr>
     <div class="row"><span class="k">TERRAIN</span><span class="v" id="i-ter">—</span></div>
     <hr>
@@ -1106,6 +1157,21 @@ const vcv=document.getElementById('vcv'), vctx=vcv.getContext('2d');
 
 function _arrMean(a){return a.reduce((s,v)=>s+v,0)/a.length;}
 function _arrStd(a){const m=_arrMean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/a.length);}
+function _detectStepMetrics(times,cmd,rep){
+  const n=times.length;
+  if(n<5)return[null,null];
+  const STEP_ON=0.25,REP_THR=0.02;
+  let stepIdx=null;
+  for(let i=n-1;i>0;i--){if(cmd[i]>=STEP_ON&&cmd[i-1]<STEP_ON){stepIdx=i;break;}}
+  if(stepIdx===null)return[null,null];
+  const tStep=times[stepIdx];
+  let target=0;for(let i=stepIdx;i<n;i++)if(cmd[i]>target)target=cmd[i];
+  let delayMs=null;
+  for(let i=stepIdx;i<n;i++){if(rep[i]>REP_THR){delayMs=(times[i]-tStep)*1000;break;}}
+  let riseMs=null;
+  if(target>0.1){const t90=target*0.9;for(let i=stepIdx;i<n;i++){if(rep[i]>=t90){riseMs=(times[i]-tStep)*1000;break;}}}
+  return[delayMs,riseMs];
+}
 function _xcorrLagMs(times,cmd,rep){
   const n=times.length;
   if(n<20)return null;
@@ -1482,6 +1548,16 @@ function panel(d){
   }
   showLag('i-lgvx',cvxH,rvxH);
   showLag('i-lgvy',cvyH,rvyH);
+  function showStep(elId,ms,lo,hi){
+    const el=document.getElementById(elId);if(!el)return;
+    if(ms!==null){
+      const c=ms<lo?'#00cc44':ms<hi?'#ffaa00':'#ff4444';
+      el.textContent=ms.toFixed(0)+' ms';el.style.color=c;
+    }else{el.textContent='—';el.style.color='#8b949e';}
+  }
+  const[dlyMs,rseMs]=_detectStepMetrics(vt,cvxH,rvxH);
+  showStep('i-dly',dlyMs,300,600);
+  showStep('i-rse',rseMs,500,900);
   const tid=d.terrain_id;
   $t('i-ter',TN[tid]||'T'+tid,TC[tid]||'#fff');
   const raw=d.raw_cluster;
