@@ -49,6 +49,8 @@ class DGPPOROSNode(Node):
         self.declare_parameter('current_cluster_id', 1)
         self.declare_parameter('angular_offset_deg', 0.0)
         self.declare_parameter('dry_run', False)  # if True: full pipeline runs but NO motor commands sent
+        self.declare_parameter('step_test', False)  # if True: override policy with repeating vx step (0→0.3→0 m/s every 2 s)
+        self._step_test_t0 = None  # set on first step-test tick
         self.num_clusters = 4
         self.dt = 1.0/30
         self.twod_area_size = 1.5
@@ -453,6 +455,23 @@ class DGPPOROSNode(Node):
         SPOT_MAX_VEL = 0.5  # m/s — conservative safe limit
         v_x_target = float(np.clip(float(new_movement_targets[3]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
         v_y_target = float(np.clip(-float(new_movement_targets[2]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
+
+        # ── Step-test override ────────────────────────────────────────────────
+        # Replaces policy output with a square-wave vx command (0 → STEP_VX → 0)
+        # every STEP_HALF_PERIOD seconds.  Gives clean step edges for cross-correlation.
+        # Enable: ros2 param set /dgppo_ros_node step_test true
+        if self.get_parameter('step_test').get_parameter_value().bool_value:
+            STEP_VX        = 0.3   # m/s forward — safe walking speed
+            STEP_HALF_PERIOD = 2.0  # seconds per half-cycle
+            if self._step_test_t0 is None:
+                self._step_test_t0 = time.time()
+            phase = (time.time() - self._step_test_t0) % (2.0 * STEP_HALF_PERIOD)
+            v_x_target = STEP_VX if phase < STEP_HALF_PERIOD else 0.0
+            v_y_target = 0.0
+            self.get_logger().info(
+                f'[STEP TEST] phase={phase:.2f}s  vx={v_x_target:.2f} m/s',
+                throttle_duration_sec=0.5,
+            )
 
         _dbg = Float32MultiArray()
         _dbg.data = [

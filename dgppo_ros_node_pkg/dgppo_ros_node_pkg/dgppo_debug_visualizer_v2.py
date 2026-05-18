@@ -397,6 +397,18 @@ def _apply_slice_filter(raw_cloud, cfg):
     return xy_flipped, xy_flipped[band_mask & range_mask]
 
 
+def _estimate_lag_ms(t_arr, cmd, rep):
+    """Cross-correlation lag estimate (cmd → reported) in milliseconds.
+    Returns None when signal variance is too low for a reliable estimate."""
+    if len(t_arr) < 20 or cmd.std() < 0.02 or rep.std() < 0.02:
+        return None
+    dt = float(np.mean(np.diff(t_arr)))
+    cc = np.correlate(rep - rep.mean(), cmd - cmd.mean(), mode='full')
+    lags = np.arange(-(len(cmd) - 1), len(cmd))
+    lag_s = float(lags[int(np.argmax(cc))]) * dt
+    return lag_s * 1000.0 if 0.0 <= lag_s <= 3.0 else None
+
+
 # ── Desktop visualizer ────────────────────────────────────────────────────────
 
 def _style_3d(ax3d):
@@ -828,12 +840,20 @@ def run_desktop(state: DebugState):
 
             t_min, t_max = t_arr[0], t_arr[-1]
             t_span = max(t_max - t_min, 1.0)
-            for _a, _cv, _rv in ((ax_vx, cmd_vx, rep_vx), (ax_vy, cmd_vy, rep_vy)):
+            for _a, _cv, _rv, _base in (
+                    (ax_vx, cmd_vx, rep_vx, 'vx  (vision frame)'),
+                    (ax_vy, cmd_vy, rep_vy, 'vy  (vision frame)')):
                 _a.set_xlim(t_min, t_min + t_span)
                 all_vals = np.concatenate([_cv, _rv])
                 v_lo, v_hi = all_vals.min(), all_vals.max()
                 margin = max((v_hi - v_lo) * 0.15, 0.05)
                 _a.set_ylim(v_lo - margin, v_hi + margin)
+                lag = _estimate_lag_ms(t_arr, _cv, _rv)
+                if lag is not None:
+                    c = C_LIDAR if lag < 150 else '#ffaa00' if lag < 400 else C_WARN
+                    _a.set_title(f'{_base}   lag ≈ {lag:.0f} ms', color=c, fontsize=8, pad=3)
+                else:
+                    _a.set_title(f'{_base}   (need more signal)', color=C_DIM, fontsize=8, pad=3)
 
         fig.canvas.draw_idle()
 
@@ -1055,6 +1075,24 @@ function toggleTheme(){
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 const vcv=document.getElementById('vcv'), vctx=vcv.getContext('2d');
 
+function _arrMean(a){return a.reduce((s,v)=>s+v,0)/a.length;}
+function _arrStd(a){const m=_arrMean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/a.length);}
+function _xcorrLagMs(times,cmd,rep){
+  const n=times.length;
+  if(n<20)return null;
+  const cs=_arrStd(cmd),rs=_arrStd(rep);
+  if(cs<0.02||rs<0.02)return null;
+  const dt=(times[n-1]-times[0])/(n-1);
+  const cm=_arrMean(cmd),rm=_arrMean(rep);
+  let best=-Infinity,bestLag=0;
+  for(let lag=0;lag<=Math.min(n-1,Math.round(3.0/dt));lag++){
+    let s=0;
+    for(let i=lag;i<n;i++) s+=(rep[i]-rm)*(cmd[i-lag]-cm);
+    if(s>best){best=s;bestLag=lag;}
+  }
+  return bestLag*dt*1000;
+}
+
 function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title){
   ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
   ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.7;ctx2.strokeRect(x0,y0,w,h);
@@ -1097,6 +1135,17 @@ function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title){
   ctx2.font='8px monospace';ctx2.textAlign='left';
   ctx2.fillStyle='#ff4466';ctx2.fillText('cmd', x0+pad.l+2,y0+pad.t+10);
   ctx2.fillStyle='#44aaff';ctx2.fillText('rep', x0+pad.l+28,y0+pad.t+10);
+  // lag estimate
+  const lag=_xcorrLagMs(times,cmdArr,repArr);
+  ctx2.textAlign='center';ctx2.font='9px monospace';
+  if(lag!==null){
+    const c=lag<150?'#00cc44':lag<400?'#ffaa00':'#ff4444';
+    ctx2.fillStyle=c;
+    ctx2.fillText('lag ≈ '+lag.toFixed(0)+' ms',x0+w/2,y0+h-3);
+  }else{
+    ctx2.fillStyle='#8b949e';
+    ctx2.fillText('(need more signal)',x0+w/2,y0+h-3);
+  }
 }
 function drawVelChart(d){
   const W=vcv.width,H=vcv.height;

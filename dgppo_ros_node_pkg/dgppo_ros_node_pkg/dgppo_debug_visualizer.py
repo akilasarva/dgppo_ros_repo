@@ -207,6 +207,19 @@ def ros_thread(state: DebugState):
         rclpy.shutdown()
 
 
+def _estimate_lag_ms(t_arr, cmd, rep):
+    """Cross-correlation lag estimate (cmd → reported) in milliseconds.
+    Returns None when signal variance is too low for a reliable estimate.
+    Positive result means reported lags behind cmd (expected for any physical system)."""
+    if len(t_arr) < 20 or cmd.std() < 0.02 or rep.std() < 0.02:
+        return None
+    dt = float(np.mean(np.diff(t_arr)))
+    cc = np.correlate(rep - rep.mean(), cmd - cmd.mean(), mode='full')
+    lags = np.arange(-(len(cmd) - 1), len(cmd))
+    lag_s = float(lags[int(np.argmax(cc))]) * dt
+    return lag_s * 1000.0 if 0.0 <= lag_s <= 3.0 else None
+
+
 # ── Matplotlib visualizer ──────────────────────────────────────────────────────
 
 BG_DARK  = '#1a1a2e'
@@ -535,12 +548,20 @@ def run_visualizer(state: DebugState):
 
             t_min, t_max = t_arr[0], t_arr[-1]
             t_span = max(t_max - t_min, 1.0)
-            for _ax, _cv, _rv in ((ax_vx, cmd_vx, rep_vx), (ax_vy, cmd_vy, rep_vy)):
+            for _ax, _cv, _rv, _base in (
+                    (ax_vx, cmd_vx, rep_vx, 'vx  (vision frame)'),
+                    (ax_vy, cmd_vy, rep_vy, 'vy  (vision frame)')):
                 _ax.set_xlim(t_min, t_min + t_span)
                 all_vals = np.concatenate([_cv, _rv])
                 v_lo, v_hi = all_vals.min(), all_vals.max()
                 margin = max((v_hi - v_lo) * 0.15, 0.05)
                 _ax.set_ylim(v_lo - margin, v_hi + margin)
+                lag = _estimate_lag_ms(t_arr, _cv, _rv)
+                if lag is not None:
+                    c = '#00cc44' if lag < 150 else '#ffaa00' if lag < 400 else '#ff4444'
+                    _ax.set_title(f'{_base}   lag ≈ {lag:.0f} ms', color=c, fontsize=9, pad=4)
+                else:
+                    _ax.set_title(f'{_base}   (need more signal)', color=GRAY, fontsize=9, pad=4)
 
         fig.canvas.draw_idle()
 
