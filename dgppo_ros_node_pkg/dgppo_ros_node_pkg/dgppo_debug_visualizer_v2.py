@@ -965,6 +965,13 @@ input.r{accent-color:var(--lidar)}
   </div>
   <div class="rsz-h" id="rsz2"></div>
   <div id="info">
+    <div style="font-size:9px;color:#555566;text-transform:uppercase;letter-spacing:.06em;margin:3px 0">── Latency ──</div>
+    <div class="row"><span class="k" style="color:#ff4466">cmd vx/vy m/s</span><span class="v" id="i-cvx" style="color:#ff4466">—</span></div>
+    <div class="row"><span class="k" style="color:#44aaff">rep vx/vy m/s</span><span class="v" id="i-rvx" style="color:#44aaff">—</span></div>
+    <div class="row"><span class="k" style="color:#ffaa44">err vx/vy m/s</span><span class="v" id="i-evx" style="color:#ffaa44">—</span></div>
+    <div class="row"><span class="k">xcorr lag vx</span><span class="v" id="i-lgvx">—</span></div>
+    <div class="row"><span class="k">xcorr lag vy</span><span class="v" id="i-lgvy">—</span></div>
+    <hr>
     <div class="row"><span class="k">TERRAIN</span><span class="v" id="i-ter">—</span></div>
     <hr>
     <div class="row"><span class="k">CLUSTER raw</span><span class="v" id="i-cr">—</span></div>
@@ -1452,6 +1459,29 @@ function resizeThree(){
 
 function $t(id,v,c){const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;}
 function panel(d){
+  // ── Latency section ──
+  if(d.state_debug&&d.state_debug.length>=12){
+    const sd=d.state_debug;
+    const f3=v=>(v>=0?'+':'')+v.toFixed(3);
+    const cvx=sd[10],cvy=sd[11],rvx=sd[2],rvy=sd[3];
+    $t('i-cvx',f3(cvx)+' / '+f3(cvy));
+    $t('i-rvx',f3(rvx)+' / '+f3(rvy));
+    const evx=cvx-rvx,evy=cvy-rvy;
+    $t('i-evx',f3(evx)+' / '+f3(evy));
+  }
+  const vt=d.vel_times||[],cvxH=d.cmd_vx_hist||[],rvxH=d.rep_vx_hist||[];
+  const cvyH=d.cmd_vy_hist||[],rvyH=d.rep_vy_hist||[];
+  function showLag(elId,cmd,rep){
+    const lag=_xcorrLagMs(vt,cmd,rep);
+    const el=document.getElementById(elId);
+    if(!el)return;
+    if(lag!==null){
+      const c=lag<150?'#00cc44':lag<400?'#ffaa00':'#ff4444';
+      el.textContent=lag.toFixed(0)+' ms';el.style.color=c;
+    }else{el.textContent='low signal';el.style.color='#8b949e';}
+  }
+  showLag('i-lgvx',cvxH,rvxH);
+  showLag('i-lgvy',cvyH,rvyH);
   const tid=d.terrain_id;
   $t('i-ter',TN[tid]||'T'+tid,TC[tid]||'#fff');
   const raw=d.raw_cluster;
