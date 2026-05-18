@@ -84,6 +84,7 @@ C_BEARING       = '#ffd700'    # gold: plan bearing
 C_HEADING       = '#cc44ff'    # purple: spot heading
 C_TRAIL         = '#3060cc'    # blue: action trail
 C_WARN          = '#ff4444'    # red: stop/no-action
+C_REP_VEL       = '#44aaff'    # blue: reported velocity arrow (matches vel-plot rep color)
 C_CLOUD_ALL     = '#2a2a3a'    # dim: all raw cloud XY
 C_CLOUD_SLICE_Z = '#ffcc00'    # yellow: Z-height slice (controls clustering)
 C_CLOUD_SLICE_I = '#ff44cc'    # magenta: intensity slice (visual only)
@@ -171,6 +172,9 @@ class DebugState:
         self.cmd_vy_hist = deque(maxlen=VEL_HIST_LEN)
         self.rep_vx_hist = deque(maxlen=VEL_HIST_LEN)
         self.rep_vy_hist = deque(maxlen=VEL_HIST_LEN)
+        # step-test metrics: persist once detected, reset when cmd returns to ~0
+        self.step_delay_ms = None
+        self.step_rise_ms  = None
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -212,6 +216,19 @@ class DebugState:
             self.cmd_vy_hist.append(data[11])
             self.rep_vx_hist.append(data[2])
             self.rep_vy_hist.append(data[3])
+            # Persist step-test metrics; reset only when cmd returns near zero
+            t_arr  = np.array(self.vel_times)
+            cmd_vx = np.array(self.cmd_vx_hist)
+            rep_vx = np.array(self.rep_vx_hist)
+            if len(t_arr) >= 5 and float(np.mean(cmd_vx[-5:])) < 0.1:
+                self.step_delay_ms = None
+                self.step_rise_ms  = None
+            else:
+                d, r = _detect_step_metrics(t_arr, cmd_vx, rep_vx)
+                if d is not None:
+                    self.step_delay_ms = d
+                if r is not None:
+                    self.step_rise_ms = r
 
     def get_raw_frame(self):
         with self._lock: return self.raw_frame_jpg
@@ -241,6 +258,8 @@ class DebugState:
                 cmd_vy_hist      = list(self.cmd_vy_hist),
                 rep_vx_hist      = list(self.rep_vx_hist),
                 rep_vy_hist      = list(self.rep_vy_hist),
+                step_delay_ms    = self.step_delay_ms,
+                step_rise_ms     = self.step_rise_ms,
             )
 
 
@@ -497,6 +516,7 @@ def _build_figure():
         mpatches.Patch(color=C_LIDAR,         label=f'processed ranges ({NUM_RANGES} bins)'),
         mpatches.Patch(color=C_TOPK,          label=f'top-{TOP_K} closest → policy input'),
         mpatches.Patch(color=C_ACTION,        label='action direction (unit vec)'),
+        mpatches.Patch(color=C_REP_VEL,       label='reported vel  (body frame, unit vec)'),
         mpatches.Patch(color=C_BEARING,       label='plan bearing  (0=FWD=UP)'),
         mpatches.Patch(color=C_HEADING,       label='spot heading  (0=FWD=UP)'),
     ]
@@ -588,7 +608,7 @@ def run_desktop(state: DebugState):
     fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
     H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
-         'trail': [], 'texts': []}
+         'rep_vel': None, 'trail': [], 'texts': []}
 
     _empty: list = []
     ln_cmd_vx, = ax_vx.plot(_empty, _empty, color='#ff4466', lw=1.5)
@@ -633,7 +653,7 @@ def run_desktop(state: DebugState):
 
     def _clear():
         _rm(H['lidar']); _rm(H['trail']); _rm(H['texts'])
-        for k in ('arrow', 'bearing', 'heading'):
+        for k in ('arrow', 'bearing', 'heading', 'rep_vel'):
             if H[k] is not None:
                 try: H[k].remove()
                 except Exception: pass
@@ -762,6 +782,15 @@ def run_desktop(state: DebugState):
             a = (bearing_rad - yaw_off) + math.pi / 2
             H['bearing'] = _arrow((math.cos(a), math.sin(a)), C_BEARING, 3.0)
 
+        # ── Reported velocity (body frame): fwd=sd[4], lat=sd[5] positive-left ──
+        sd_now = snap.get('state_debug')
+        if sd_now and len(sd_now) >= 6:
+            rv_fwd = sd_now[4]
+            rv_right = -sd_now[5]   # lat is positive-left; negate for right-positive display
+            rv_mag = math.hypot(rv_fwd, rv_right)
+            if rv_mag > 0.02:
+                H['rep_vel'] = _arrow((rv_right / rv_mag, rv_fwd / rv_mag), C_REP_VEL, 3.0)
+
         # ── Action: atan2(a1_fwd, a0_right) already gives FWD=UP ─────────
         if snap['has_action']:
             if mag > 0.02:
@@ -788,9 +817,10 @@ def run_desktop(state: DebugState):
         rep_vx  = np.array(snap['rep_vx_hist']) if has_vel else np.array([])
         cmd_vy  = np.array(snap['cmd_vy_hist']) if has_vel else np.array([])
         rep_vy  = np.array(snap['rep_vy_hist']) if has_vel else np.array([])
-        lag_vx  = _estimate_lag_ms(t_arr, cmd_vx, rep_vx) if has_vel else None
-        lag_vy  = _estimate_lag_ms(t_arr, cmd_vy, rep_vy) if has_vel else None
-        delay_ms, rise_ms = _detect_step_metrics(t_arr, cmd_vx, rep_vx) if has_vel else (None, None)
+        lag_vx   = _estimate_lag_ms(t_arr, cmd_vx, rep_vx) if has_vel else None
+        lag_vy   = _estimate_lag_ms(t_arr, cmd_vy, rep_vy) if has_vel else None
+        delay_ms = snap.get('step_delay_ms')
+        rise_ms  = snap.get('step_rise_ms')
 
         def _lag_row(lbl, lag):
             if lag is not None:
@@ -1157,21 +1187,6 @@ const vcv=document.getElementById('vcv'), vctx=vcv.getContext('2d');
 
 function _arrMean(a){return a.reduce((s,v)=>s+v,0)/a.length;}
 function _arrStd(a){const m=_arrMean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/a.length);}
-function _detectStepMetrics(times,cmd,rep){
-  const n=times.length;
-  if(n<5)return[null,null];
-  const STEP_ON=0.25,REP_THR=0.02;
-  let stepIdx=null;
-  for(let i=n-1;i>0;i--){if(cmd[i]>=STEP_ON&&cmd[i-1]<STEP_ON){stepIdx=i;break;}}
-  if(stepIdx===null)return[null,null];
-  const tStep=times[stepIdx];
-  let target=0;for(let i=stepIdx;i<n;i++)if(cmd[i]>target)target=cmd[i];
-  let delayMs=null;
-  for(let i=stepIdx;i<n;i++){if(rep[i]>REP_THR){delayMs=(times[i]-tStep)*1000;break;}}
-  let riseMs=null;
-  if(target>0.1){const t90=target*0.9;for(let i=stepIdx;i<n;i++){if(rep[i]>=t90){riseMs=(times[i]-tStep)*1000;break;}}}
-  return[delayMs,riseMs];
-}
 function _xcorrLagMs(times,cmd,rep){
   const n=times.length;
   if(n<20)return null;
@@ -1401,6 +1416,13 @@ function draw(d){
     drawArrow(d.bearing_rad-yawOff+Math.PI/2,sc,cx,cy,C.bear,3.5);
   }
 
+  // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
+  if(d.state_debug&&d.state_debug.length>=6){
+    const rvFwd=d.state_debug[4], rvRight=-d.state_debug[5];
+    const rvMag=Math.hypot(rvFwd,rvRight);
+    if(rvMag>0.02) drawArrow(Math.atan2(rvFwd,rvRight),sc,cx,cy,'#44aaff',3.0);
+  }
+
   // Action: atan2(fwd, right) already gives FWD=UP — no offset needed
   if(d.has_action){
     const[a0,a1]=d.action,mag=Math.hypot(a0,a1);
@@ -1421,9 +1443,10 @@ function draw(d){
     [slCol2,           slLbl],
     [C.lidar,          'Lidar beams'],
     [C.topk,           'Top-K inputs'],
+    [C.act,            'Action (unit vec)'],
+    ['#44aaff',        'Reported vel (unit vec)'],
     [C.bear,           'Plan bearing'],
     [C.head,           'Spot heading'],
-    [C.act,            'Action'],
   ];
   const lx=8,ly=22,lh=16,dotR=5;
   ctx.save();
@@ -1550,14 +1573,13 @@ function panel(d){
   showLag('i-lgvy',cvyH,rvyH);
   function showStep(elId,ms,lo,hi){
     const el=document.getElementById(elId);if(!el)return;
-    if(ms!==null){
+    if(ms!=null){
       const c=ms<lo?'#00cc44':ms<hi?'#ffaa00':'#ff4444';
       el.textContent=ms.toFixed(0)+' ms';el.style.color=c;
     }else{el.textContent='—';el.style.color='#8b949e';}
   }
-  const[dlyMs,rseMs]=_detectStepMetrics(vt,cvxH,rvxH);
-  showStep('i-dly',dlyMs,300,600);
-  showStep('i-rse',rseMs,500,900);
+  showStep('i-dly',d.step_delay_ms??null,300,600);
+  showStep('i-rse',d.step_rise_ms??null,500,900);
   const tid=d.terrain_id;
   $t('i-ter',TN[tid]||'T'+tid,TC[tid]||'#fff');
   const raw=d.raw_cluster;
