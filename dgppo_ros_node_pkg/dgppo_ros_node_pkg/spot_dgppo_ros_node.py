@@ -49,7 +49,8 @@ class DGPPOROSNode(Node):
         self.declare_parameter('current_cluster_id', 1)
         self.declare_parameter('angular_offset_deg', 0.0)
         self.declare_parameter('dry_run', False)  # if True: full pipeline runs but NO motor commands sent
-        self.declare_parameter('step_test', False)  # if True: override policy with repeating vx step (0→0.3→0 m/s every 2 s)
+        self.declare_parameter('step_test', False)       # repeating square wave: 0→0.4→0 m/s, 4 s half-period
+        self.declare_parameter('step_test_once', False)  # single step: 0→0.4 m/s, holds until disabled
         self._step_test_t0 = None  # set on first step-test tick
         self.num_clusters = 4
         self.dt = 1.0/30
@@ -456,13 +457,31 @@ class DGPPOROSNode(Node):
         v_x_target = float(np.clip(float(new_movement_targets[3]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
         v_y_target = float(np.clip(-float(new_movement_targets[2]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
 
-        # ── Step-test override ────────────────────────────────────────────────
-        # Replaces policy output with a square-wave vx command (0 → STEP_VX → 0)
-        # every STEP_HALF_PERIOD seconds.  Gives clean step edges for cross-correlation.
-        # Enable: ros2 param set /dgppo_ros_node step_test true
-        if self.get_parameter('step_test').get_parameter_value().bool_value:
-            STEP_VX        = 0.3   # m/s forward — safe walking speed
-            STEP_HALF_PERIOD = 2.0  # seconds per half-cycle
+        # ── Step-test overrides ───────────────────────────────────────────────
+        STEP_VX = 0.4  # m/s forward — safe walking speed for both modes
+
+        if self.get_parameter('step_test_once').get_parameter_value().bool_value:
+            # Single step: command STEP_VX and hold.
+            # Tells you:
+            #   pure delay  → time from step edge to first detectable motion in reported vel
+            #   rise time   → time for reported vel to climb from 0 to ~90% of STEP_VX
+            # Disable with: ros2 param set /dgppo_ros_node step_test_once false
+            if self._step_test_t0 is None:
+                self._step_test_t0 = time.time()
+            v_x_target = STEP_VX
+            v_y_target = 0.0
+            self.get_logger().info(
+                f'[STEP ONCE] t={time.time() - self._step_test_t0:.2f}s  vx={v_x_target:.2f} m/s',
+                throttle_duration_sec=0.5,
+            )
+        elif self.get_parameter('step_test').get_parameter_value().bool_value:
+            # Repeating square wave: 0 → STEP_VX → 0, 4 s per half-cycle.
+            # Tells you:
+            #   phase lag   → cross-correlation peak (automated number on the plot)
+            # 4 s half-period >> expected rise time (~300-500 ms) so Spot fully
+            # settles before each transition — clean edges for xcorr.
+            # Run for ≥30 s (3+ full cycles) for a stable estimate.
+            STEP_HALF_PERIOD = 4.0
             if self._step_test_t0 is None:
                 self._step_test_t0 = time.time()
             phase = (time.time() - self._step_test_t0) % (2.0 * STEP_HALF_PERIOD)
@@ -472,6 +491,8 @@ class DGPPOROSNode(Node):
                 f'[STEP TEST] phase={phase:.2f}s  vx={v_x_target:.2f} m/s',
                 throttle_duration_sec=0.5,
             )
+        else:
+            self._step_test_t0 = None  # reset timer when both modes are off
 
         _dbg = Float32MultiArray()
         _dbg.data = [

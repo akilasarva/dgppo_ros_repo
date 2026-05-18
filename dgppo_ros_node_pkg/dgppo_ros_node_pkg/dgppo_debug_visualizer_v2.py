@@ -58,7 +58,7 @@ from rclpy.qos import qos_profile_sensor_data
 NUM_RANGES   = 72
 TOP_K        = 8
 HISTORY_LEN  = 20
-VEL_HIST_LEN = 150   # ~12 s at 80 ms update rate
+VEL_HIST_LEN = 300   # ~24 s at 80 ms update rate (fits 3+ cycles of 4 s half-period step test)
 WEB_PORT     = 8765
 
 TERRAIN_NAMES = {0: "Road", 1: "Grass", 2: "Sidewalk"}
@@ -742,12 +742,43 @@ def run_desktop(state: DebugState):
             H['texts'].append(ax.text(0, 0, 'waiting\n/dgppo_action',
                                       color=C_DIM, ha='center', va='center', fontsize=11))
 
+        # ── Pre-compute velocity history + lags (reused in panel and vel plots) ──
+        t_arr   = np.array(snap.get('vel_times', []))
+        has_vel = len(t_arr) >= 2
+        cmd_vx  = np.array(snap['cmd_vx_hist']) if has_vel else np.array([])
+        rep_vx  = np.array(snap['rep_vx_hist']) if has_vel else np.array([])
+        cmd_vy  = np.array(snap['cmd_vy_hist']) if has_vel else np.array([])
+        rep_vy  = np.array(snap['rep_vy_hist']) if has_vel else np.array([])
+        lag_vx  = _estimate_lag_ms(t_arr, cmd_vx, rep_vx) if has_vel else None
+        lag_vy  = _estimate_lag_ms(t_arr, cmd_vy, rep_vy) if has_vel else None
+
+        def _lag_row(lbl, lag):
+            if lag is not None:
+                c = C_LIDAR if lag < 150 else '#ffaa00' if lag < 400 else C_WARN
+                return (lbl, f'{lag:.0f} ms', c)
+            return (lbl, 'low signal', C_DIM)
+
         # ── Info panel ────────────────────────────────────────────────────
         tid   = snap['terrain_id']
         tc    = {0: '#ffaa44', 1: '#44ff88', 2: '#aaaaff'}.get(tid, C_TEXT)
         cname = CLUSTER_NAMES.get(mapped, f'cls_{mapped}') if mapped is not None else '—'
+        sd    = snap.get('state_debug')
 
-        rows = [('TERRAIN', TERRAIN_NAMES.get(tid, f'T{tid}'), tc), ('', '', '')]
+        # Latency section — top of panel, most important for step tests
+        rows = [('── LATENCY ──', '', '#555566')]
+        if sd and len(sd) >= 12:
+            cvx, cvy = sd[10], sd[11]
+            rvx, rvy = sd[2],  sd[3]
+            rows += [('cmd vx/vy  m/s', f'{cvx:+.3f} / {cvy:+.3f}', '#ff4466'),
+                     ('rep vx/vy  m/s', f'{rvx:+.3f} / {rvy:+.3f}', '#44aaff'),
+                     ('err vx/vy  m/s', f'{cvx-rvx:+.3f} / {cvy-rvy:+.3f}', '#ffaa44')]
+        else:
+            rows.append(('cmd/rep', 'waiting...', C_DIM))
+        rows += [_lag_row('xcorr lag vx', lag_vx),
+                 _lag_row('xcorr lag vy', lag_vy),
+                 ('', '', '')]
+
+        rows += [('TERRAIN', TERRAIN_NAMES.get(tid, f'T{tid}'), tc), ('', '', '')]
         if raw_cluster is not None:
             rows += [('CLUSTER raw',    str(raw_cluster),          '#ddddff'),
                      ('CLUSTER mapped', f'{mapped}  {cname}',      '#aaaaff')]
@@ -782,7 +813,6 @@ def run_desktop(state: DebugState):
         if spot_yaw is not None:
             rows += [('', '', ''), ('SPOT YAW', f'{math.degrees(spot_yaw):+.1f}°', C_HEADING)]
 
-        sd = snap.get('state_debug')
         if sd and len(sd) >= 12:
             rows += [('', '', ''),
                      ('── FRAME DEBUG', '', '#555566'),
@@ -794,7 +824,6 @@ def run_desktop(state: DebugState):
                      ('cmd vx/vy  m/s',    f'{sd[10]:+.3f} / {sd[11]:+.3f}', '#ffaaff')]
         rows.append(('', '', ''))
 
-        rows.append(('', '', ''))
         if len(topk):
             rows.append(('TOP-K PTS', '(x right, y fwd) world', C_TOPK))
             ψ = spot_yaw if spot_yaw is not None else 0.0
@@ -814,25 +843,19 @@ def run_desktop(state: DebugState):
                  ('Int slice',f"[{cfg['int_lower']:.0f}, {cfg['int_upper']:.0f}]",   C_CLOUD_SLICE_I),
                  ('Range',    f"[{cfg['min_range']:.1f}, {cfg['max_range']:.1f}] m", '#bbbbbb')]
 
-        y, dy = 0.97, 0.057
+        y, dy = 0.97, 0.050
         for lbl, val, clr in rows:
             if not lbl and not val:
                 y -= dy * 0.35; continue
             t1 = ax_info.text(0.04, y, lbl, transform=ax_info.transAxes,
-                              color=C_DIM, fontsize=8.5, va='top', fontweight='bold')
+                              color=C_DIM, fontsize=8, va='top', fontweight='bold')
             t2 = ax_info.text(0.96, y, val, transform=ax_info.transAxes,
-                              color=clr, fontsize=9.0, va='top', ha='right',
+                              color=clr, fontsize=8.5, va='top', ha='right',
                               fontfamily='monospace')
             H['texts'].extend([t1, t2]); y -= dy
 
         # ── Velocity time-series plots ────────────────────────────────────────
-        t_arr = np.array(snap.get('vel_times', []))
-        if len(t_arr) >= 2:
-            cmd_vx = np.array(snap['cmd_vx_hist'])
-            rep_vx = np.array(snap['rep_vx_hist'])
-            cmd_vy = np.array(snap['cmd_vy_hist'])
-            rep_vy = np.array(snap['rep_vy_hist'])
-
+        if has_vel:
             ln_cmd_vx.set_data(t_arr, cmd_vx)
             ln_rep_vx.set_data(t_arr, rep_vx)
             ln_cmd_vy.set_data(t_arr, cmd_vy)
@@ -840,18 +863,17 @@ def run_desktop(state: DebugState):
 
             t_min, t_max = t_arr[0], t_arr[-1]
             t_span = max(t_max - t_min, 1.0)
-            for _a, _cv, _rv, _base in (
-                    (ax_vx, cmd_vx, rep_vx, 'vx  (vision frame)'),
-                    (ax_vy, cmd_vy, rep_vy, 'vy  (vision frame)')):
+            for _a, _cv, _rv, _base, _lag in (
+                    (ax_vx, cmd_vx, rep_vx, 'vx  (vision frame)', lag_vx),
+                    (ax_vy, cmd_vy, rep_vy, 'vy  (vision frame)', lag_vy)):
                 _a.set_xlim(t_min, t_min + t_span)
                 all_vals = np.concatenate([_cv, _rv])
                 v_lo, v_hi = all_vals.min(), all_vals.max()
                 margin = max((v_hi - v_lo) * 0.15, 0.05)
                 _a.set_ylim(v_lo - margin, v_hi + margin)
-                lag = _estimate_lag_ms(t_arr, _cv, _rv)
-                if lag is not None:
-                    c = C_LIDAR if lag < 150 else '#ffaa00' if lag < 400 else C_WARN
-                    _a.set_title(f'{_base}   lag ≈ {lag:.0f} ms', color=c, fontsize=8, pad=3)
+                if _lag is not None:
+                    c = C_LIDAR if _lag < 150 else '#ffaa00' if _lag < 400 else C_WARN
+                    _a.set_title(f'{_base}   lag ≈ {_lag:.0f} ms', color=c, fontsize=8, pad=3)
                 else:
                     _a.set_title(f'{_base}   (need more signal)', color=C_DIM, fontsize=8, pad=3)
 

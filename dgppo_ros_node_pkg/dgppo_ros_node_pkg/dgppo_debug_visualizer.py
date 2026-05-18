@@ -63,7 +63,7 @@ RAW_TO_MAPPED = {
 }
 
 HISTORY_LEN  = 25
-VEL_HIST_LEN = 150   # ~15 s at 100 ms update rate
+VEL_HIST_LEN = 300   # ~30 s at 100 ms update rate (fits 3+ cycles of 4 s half-period step test)
 
 
 # ── Shared state ───────────────────────────────────────────────────────────────
