@@ -45,11 +45,11 @@ def render_yaml(*, environment: str, source: str, grouped: "OrderedDict[str, lis
     lines.append(f"environment: {environment}")
     lines.append(f"source: {source}")
     lines.append("modes:")
-    width = max(len(label) for label in grouped) + 2  # quote padding
+    width = max(len(label) for label in grouped) + 3  # 2 quote chars + ':'
     for label, ids in grouped.items():
-        quoted = f'"{label}"'
+        key = f'"{label}":'
         ids_str = "[" + ", ".join(str(i) for i in ids) + "]"
-        lines.append(f"  {quoted:<{width}} {ids_str}")
+        lines.append(f"  {key:<{width}} {ids_str}")
     lines.append("")
     return "\n".join(lines)
 
