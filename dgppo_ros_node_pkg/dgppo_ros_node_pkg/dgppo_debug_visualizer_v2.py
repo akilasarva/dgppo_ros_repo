@@ -85,6 +85,7 @@ C_HEADING       = '#cc44ff'    # purple: spot heading
 C_TRAIL         = '#3060cc'    # blue: action trail
 C_WARN          = '#ff4444'    # red: stop/no-action
 C_REP_VEL       = '#44aaff'    # blue: reported velocity arrow (matches vel-plot rep color)
+C_RAW_ACTION    = '#ff9900'    # orange: raw (unclipped) policy action unit vector
 C_CLOUD_ALL     = '#2a2a3a'    # dim: all raw cloud XY
 C_CLOUD_SLICE_Z = '#ffcc00'    # yellow: Z-height slice (controls clustering)
 C_CLOUD_SLICE_I = '#ff44cc'    # magenta: intensity slice (visual only)
@@ -591,7 +592,8 @@ def _build_figure():
         mpatches.Patch(color='#ff4444',       label='slice: density-filtered noise'),
         mpatches.Patch(color=C_LIDAR,         label=f'processed ranges ({NUM_RANGES} bins)'),
         mpatches.Patch(color=C_TOPK,          label=f'top-{TOP_K} closest → policy input'),
-        mpatches.Patch(color=C_ACTION,        label='action direction (unit vec)'),
+        mpatches.Patch(color=C_ACTION,        label='action direction (unit vec, clipped)'),
+        mpatches.Patch(color=C_RAW_ACTION,    label='raw policy output (unit vec, unclipped)'),
         mpatches.Patch(color=C_REP_VEL,       label='reported vel  (body frame, unit vec)'),
         mpatches.Patch(color=C_BEARING,       label='plan bearing  (0=FWD=UP)'),
         mpatches.Patch(color=C_HEADING,       label='spot heading  (0=FWD=UP)'),
@@ -697,7 +699,7 @@ def run_desktop(state: DebugState):
     fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
     H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
-         'rep_vel': None, 'trail': [], 'texts': []}
+         'rep_vel': None, 'raw_action': None, 'trail': [], 'texts': []}
 
     _empty: list = []
     ln_cmd_vx, = ax_vx.plot(_empty, _empty, color='#ff4466', lw=1.5)
@@ -744,7 +746,7 @@ def run_desktop(state: DebugState):
 
     def _clear():
         _rm(H['lidar']); _rm(H['trail']); _rm(H['texts'])
-        for k in ('arrow', 'bearing', 'heading', 'rep_vel'):
+        for k in ('arrow', 'bearing', 'heading', 'rep_vel', 'raw_action'):
             if H[k] is not None:
                 try: H[k].remove()
                 except Exception: pass
@@ -912,6 +914,13 @@ def run_desktop(state: DebugState):
             if rv_mag > 0.02:
                 H['rep_vel'] = _arrow((rv_right / rv_mag, rv_fwd / rv_mag), C_REP_VEL, 3.0)
 
+        # ── Raw (unclipped) policy action unit vector: sd[12]=right, sd[13]=fwd ──
+        if sd_now and len(sd_now) >= 14:
+            ra_right, ra_fwd = sd_now[12], sd_now[13]
+            ra_mag = math.hypot(ra_right, ra_fwd)
+            if ra_mag > 0.02:
+                H['raw_action'] = _arrow((ra_right / ra_mag, ra_fwd / ra_mag), C_RAW_ACTION, 3.0)
+
         # ── Action: atan2(a1_fwd, a0_right) already gives FWD=UP ─────────
         if snap['has_action']:
             if mag > 0.02:
@@ -951,6 +960,14 @@ def run_desktop(state: DebugState):
         delay_ms = snap.get('step_delay_ms')
         rise_ms  = snap.get('step_rise_ms')
 
+        if has_vel and len(cmd_vx) >= 2:
+            std_rep_vx = float(np.std(rep_vx))
+            std_rep_vy = float(np.std(rep_vy))
+            std_err_vx = float(np.std(rep_vx - cmd_vx))
+            std_err_vy = float(np.std(rep_vy - cmd_vy))
+        else:
+            std_rep_vx = std_rep_vy = std_err_vx = std_err_vy = None
+
         def _lag_row(lbl, lag):
             if lag is not None:
                 c = C_LIDAR if lag < 150 else '#ffaa00' if lag < 400 else C_WARN
@@ -975,6 +992,9 @@ def run_desktop(state: DebugState):
             rows.append(('cmd/rep', 'waiting...', C_DIM))
         rows += [_lag_row('xcorr lag vx', lag_vx),
                  _lag_row('xcorr lag vy', lag_vy)]
+        if std_rep_vx is not None:
+            rows += [('σ_rep vx/vy m/s', f'{std_rep_vx:.3f} / {std_rep_vy:.3f}', '#44aaff'),
+                     ('σ_err vx/vy m/s', f'{std_err_vx:.3f} / {std_err_vy:.3f}', '#ffaa44')]
 
         def _step_row(lbl, ms, lo, hi):
             if ms is not None:
@@ -1018,6 +1038,12 @@ def run_desktop(state: DebugState):
         rows += [('a[0] right', f'{a0:+.4f}', C_TEXT),
                  ('a[1] fwd',   f'{a1:+.4f}', C_TEXT),
                  ('|a| mag',    f'{mag:.4f}',  C_DIM)]
+        if sd and len(sd) >= 14:
+            ra0, ra1 = sd[12], sd[13]
+            rows += [('── RAW POLICY', '', '#555566'),
+                     ('raw a[0] right', f'{ra0:+.4f}', C_RAW_ACTION),
+                     ('raw a[1] fwd',   f'{ra1:+.4f}', C_RAW_ACTION),
+                     ('|raw a| mag',    f'{math.hypot(ra0, ra1):.4f}', C_DIM)]
         if spot_yaw is not None:
             rows += [('', '', ''), ('SPOT YAW', f'{math.degrees(spot_yaw):+.1f}°', C_HEADING)]
 
@@ -1071,19 +1097,21 @@ def run_desktop(state: DebugState):
 
             t_min, t_max = t_arr[0], t_arr[-1]
             t_span = max(t_max - t_min, 1.0)
-            for _a, _cv, _rv, _base, _lag in (
-                    (ax_vx, cmd_vx, rep_vx, 'vx  (vision frame)', lag_vx),
-                    (ax_vy, cmd_vy, rep_vy, 'vy  (vision frame)', lag_vy)):
+            for _a, _cv, _rv, _base, _lag, _sr, _se in (
+                    (ax_vx, cmd_vx, rep_vx, 'vx', lag_vx, std_rep_vx, std_err_vx),
+                    (ax_vy, cmd_vy, rep_vy, 'vy', lag_vy, std_rep_vy, std_err_vy)):
                 _a.set_xlim(t_min, t_min + t_span)
                 all_vals = np.concatenate([_cv, _rv])
                 v_lo, v_hi = all_vals.min(), all_vals.max()
                 margin = max((v_hi - v_lo) * 0.15, 0.05)
                 _a.set_ylim(v_lo - margin, v_hi + margin)
-                if _lag is not None:
-                    c = C_LIDAR if _lag < 150 else '#ffaa00' if _lag < 400 else C_WARN
-                    _a.set_title(f'{_base}   lag ≈ {_lag:.0f} ms', color=c, fontsize=8, pad=3)
-                else:
-                    _a.set_title(f'{_base}   (need more signal)', color=C_DIM, fontsize=8, pad=3)
+                lag_str = f'lag≈{_lag:.0f}ms' if _lag is not None else 'low signal'
+                c = (C_LIDAR if _lag is not None and _lag < 150
+                     else '#ffaa00' if _lag is not None and _lag < 400 else C_DIM)
+                var_str = (f'  σ_rep={_sr:.3f}  σ_err={_se:.3f}'
+                           if _sr is not None else '')
+                _a.set_title(f'{_base} (vision)   {lag_str}{var_str}',
+                             color=c, fontsize=8, pad=3)
 
         # ── Per-cycle stacked charts ──────────────────────────────────────────
         cycles = snap.get('cycle_metrics', [])
@@ -1208,6 +1236,8 @@ input.r{accent-color:var(--lidar)}
     <div class="row"><span class="k" style="color:#ffaa44">err vx/vy m/s</span><span class="v" id="i-evx" style="color:#ffaa44">—</span></div>
     <div class="row"><span class="k">xcorr lag vx</span><span class="v" id="i-lgvx">—</span></div>
     <div class="row"><span class="k">xcorr lag vy</span><span class="v" id="i-lgvy">—</span></div>
+    <div class="row"><span class="k" style="color:#44aaff">σ_rep vx/vy</span><span class="v" id="i-srv" style="color:#44aaff">—</span></div>
+    <div class="row"><span class="k" style="color:#ffaa44">σ_err vx/vy</span><span class="v" id="i-sev" style="color:#ffaa44">—</span></div>
     <div class="row"><span class="k">pure delay</span><span class="v" id="i-dly">—</span></div>
     <div class="row"><span class="k">rise 0→90%</span><span class="v" id="i-rse">—</span></div>
     <hr>
@@ -1225,6 +1255,10 @@ input.r{accent-color:var(--lidar)}
     <div class="row"><span class="k">a[0] right</span><span class="v" id="i-a0">—</span></div>
     <div class="row"><span class="k">a[1] fwd</span><span class="v" id="i-a1">—</span></div>
     <div class="row"><span class="k">|a| mag</span><span class="v" id="i-mg">—</span></div>
+    <div style="font-size:9px;color:#555566;letter-spacing:.06em;margin:3px 0">── Raw Policy ──</div>
+    <div class="row"><span class="k" style="color:#ff9900">raw a[0] right</span><span class="v" id="i-ra0" style="color:#ff9900">—</span></div>
+    <div class="row"><span class="k" style="color:#ff9900">raw a[1] fwd</span><span class="v" id="i-ra1" style="color:#ff9900">—</span></div>
+    <div class="row"><span class="k">|raw a| mag</span><span class="v" id="i-rmg">—</span></div>
     <hr>
     <div class="row"><span class="k">SPOT YAW</span><span class="v" id="i-yw">—</span></div>
     <hr>
@@ -1363,10 +1397,15 @@ function _xcorrLagMs(times,cmd,rep){
   return bestLag*dt*1000;
 }
 
+function _stdArr(arr){
+  if(arr.length<2)return 0;
+  const m=arr.reduce((a,b)=>a+b,0)/arr.length;
+  return Math.sqrt(arr.reduce((a,b)=>a+(b-m)**2,0)/arr.length);
+}
 function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title,lagOverride=undefined){
   ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
   ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.7;ctx2.strokeRect(x0,y0,w,h);
-  const pad={l:34,r:6,t:16,b:14};
+  const pad={l:34,r:6,t:16,b:26};
   const pw=w-pad.l-pad.r, ph=h-pad.t-pad.b;
   if(pw<10||ph<10)return;
   ctx2.fillStyle='#8b949e';ctx2.font='9px monospace';ctx2.textAlign='center';
@@ -1411,10 +1450,19 @@ function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title,lagOverride=unde
   if(lag!==null){
     const c=lag<150?'#00cc44':lag<400?'#ffaa00':'#ff4444';
     ctx2.fillStyle=c;
-    ctx2.fillText('lag ≈ '+lag.toFixed(0)+' ms',x0+w/2,y0+h-3);
+    ctx2.fillText('lag≈'+lag.toFixed(0)+'ms',x0+w/2,y0+h-14);
   }else{
     ctx2.fillStyle='#8b949e';
-    ctx2.fillText('(need more signal)',x0+w/2,y0+h-3);
+    ctx2.fillText('(need more signal)',x0+w/2,y0+h-14);
+  }
+  // variance row
+  if(cmdArr.length>=2){
+    const sRep=_stdArr(repArr);
+    const errArr=repArr.map((v,i)=>v-cmdArr[i]);
+    const sErr=_stdArr(errArr);
+    ctx2.font='8px monospace';ctx2.textAlign='left';
+    ctx2.fillStyle='#44aaff';ctx2.fillText('σ_rep='+sRep.toFixed(3),x0+pad.l+2,y0+h-3);
+    ctx2.fillStyle='#ffaa44';ctx2.fillText('σ_err='+sErr.toFixed(3),x0+pad.l+76,y0+h-3);
   }
 }
 function _drawCycleHalf(ctx2,x0,y0,w,h,txFn,vals,color,title,countStr){
@@ -1629,7 +1677,13 @@ function draw(d){
     if(rvMag>0.02) drawArrow(Math.atan2(rvFwd,rvRight),sc,cx,cy,'#44aaff',3.0);
   }
 
-  // Action: atan2(fwd, right) already gives FWD=UP — no offset needed
+  // Raw (unclipped) policy action unit vector: sd[12]=right, sd[13]=fwd
+  if(d.state_debug&&d.state_debug.length>=14){
+    const ra0=d.state_debug[12],ra1=d.state_debug[13];
+    const raMag=Math.hypot(ra0,ra1);
+    if(raMag>0.02) drawArrow(Math.atan2(ra1,ra0),sc,cx,cy,'#ff9900',3.0);
+  }
+  // Action (clipped): atan2(fwd, right) already gives FWD=UP — no offset needed
   if(d.has_action){
     const[a0,a1]=d.action,mag=Math.hypot(a0,a1);
     if(mag>0.02) drawArrow(Math.atan2(a1,a0),sc,cx,cy,C.act,4.5);
@@ -1649,7 +1703,8 @@ function draw(d){
     [slCol2,           slLbl],
     [C.lidar,          'Lidar beams'],
     [C.topk,           'Top-K inputs'],
-    [C.act,            'Action (unit vec)'],
+    [C.act,            'Action (clipped, unit vec)'],
+    ['#ff9900',        'Raw policy (unclipped, unit vec)'],
     ['#44aaff',        'Reported vel (unit vec)'],
     [C.bear,           'Plan bearing'],
     [C.head,           'Spot heading'],
@@ -1658,7 +1713,7 @@ function draw(d){
   ctx.save();
   ctx.globalAlpha=0.82;
   ctx.fillStyle=C.bg;
-  ctx.fillRect(lx-4,ly-14,130,items.length*lh+6);
+  ctx.fillRect(lx-4,ly-14,160,items.length*lh+6);
   ctx.globalAlpha=1;
   ctx.font='10px monospace';ctx.textAlign='left';
   items.forEach(([col,lbl],i)=>{
@@ -1791,6 +1846,13 @@ function panel(d){
   }
   showLag('i-lgvx',cvxH,rvxH,'vx');
   showLag('i-lgvy',cvyH,rvyH,'vy');
+  if(cvxH.length>=2){
+    const sRepVx=_stdArr(rvxH),sRepVy=_stdArr(rvyH);
+    const sErrVx=_stdArr(rvxH.map((v,i)=>v-cvxH[i]));
+    const sErrVy=_stdArr(rvyH.map((v,i)=>v-cvyH[i]));
+    $t('i-srv',sRepVx.toFixed(3)+' / '+sRepVy.toFixed(3));
+    $t('i-sev',sErrVx.toFixed(3)+' / '+sErrVy.toFixed(3));
+  }
   function showStep(elId,ms,lo,hi){
     const el=document.getElementById(elId);if(!el)return;
     if(ms!=null){
@@ -1832,6 +1894,12 @@ function panel(d){
     $t('i-dbsp',f3(sd[6])+' / '+f3(sd[7]));
     $t('i-dbsv',f4(sd[8])+' / '+f4(sd[9]));
     $t('i-dbcv',f3(sd[10])+' / '+f3(sd[11]));
+    if(sd.length>=14){
+      const ra0=sd[12],ra1=sd[13];
+      $t('i-ra0',(ra0>=0?'+':'')+ra0.toFixed(4));
+      $t('i-ra1',(ra1>=0?'+':'')+ra1.toFixed(4));
+      $t('i-rmg',Math.hypot(ra0,ra1).toFixed(4));
+    }
   }
   const topkEl=document.getElementById('i-topk');
   if(topkEl){
