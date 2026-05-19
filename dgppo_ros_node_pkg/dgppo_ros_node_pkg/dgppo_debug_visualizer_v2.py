@@ -175,6 +175,8 @@ class DebugState:
         # step-test metrics: persist once detected, reset when cmd returns to ~0
         self.step_delay_ms = None
         self.step_rise_ms  = None
+        # per-cycle metrics: one entry per rising edge seen
+        self.cycle_metrics = deque(maxlen=50)
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -229,6 +231,14 @@ class DebugState:
                     self.step_delay_ms = d
                 if r is not None:
                     self.step_rise_ms = r
+            # Per-cycle metrics: append any new edges not yet recorded
+            cycles = _detect_cycle_metrics(t_arr, cmd_vx, rep_vx)
+            if cycles:
+                last_t = self.cycle_metrics[-1][0] if self.cycle_metrics else -1.0
+                for entry in cycles:
+                    if entry[0] > last_t + 0.1:
+                        self.cycle_metrics.append(entry)
+                        last_t = entry[0]
 
     def get_raw_frame(self):
         with self._lock: return self.raw_frame_jpg
@@ -260,6 +270,7 @@ class DebugState:
                 rep_vy_hist      = list(self.rep_vy_hist),
                 step_delay_ms    = self.step_delay_ms,
                 step_rise_ms     = self.step_rise_ms,
+                cycle_metrics    = list(self.cycle_metrics),
             )
 
 
@@ -467,6 +478,43 @@ def _detect_step_metrics(t_arr, cmd_vx, rep_vx):
     return delay_ms, rise_ms
 
 
+def _detect_cycle_metrics(t_arr, cmd_vx, rep_vx):
+    """For each rising edge in cmd_vx compute per-cycle pure delay and 0→90% rise time.
+    Returns list of (t_edge, delay_ms, rise_ms) — rise_ms is None if not yet reached."""
+    STEP_ON = 0.25
+    REP_THR = 0.02
+    edges = [i for i in range(1, len(cmd_vx))
+             if cmd_vx[i] >= STEP_ON and cmd_vx[i - 1] < STEP_ON]
+    results = []
+    for step_idx in edges:
+        t_step = t_arr[step_idx]
+        # Window: this edge → next falling edge (or end of buffer)
+        end_idx = len(cmd_vx)
+        for j in range(step_idx + 1, len(cmd_vx)):
+            if cmd_vx[j] < STEP_ON and cmd_vx[j - 1] >= STEP_ON:
+                end_idx = j
+                break
+        if end_idx - step_idx < 5:
+            continue
+        target = float(np.max(cmd_vx[step_idx:end_idx]))
+        delay_ms = None
+        for i in range(step_idx, end_idx):
+            if rep_vx[i] > REP_THR:
+                delay_ms = (t_arr[i] - t_step) * 1000.0
+                break
+        rise_ms = None
+        if target > 0.1:
+            t90 = target * 0.9
+            for i in range(step_idx, end_idx):
+                if rep_vx[i] >= t90:
+                    rise_ms = (t_arr[i] - t_step) * 1000.0
+                    break
+        if delay_ms is not None:
+            results.append((float(t_step), float(delay_ms),
+                            float(rise_ms) if rise_ms is not None else None))
+    return results
+
+
 # ── Desktop visualizer ────────────────────────────────────────────────────────
 
 def _style_3d(ax3d):
@@ -554,6 +602,18 @@ def _build_figure():
         _a.legend(handles=leg_patches, loc='upper left', facecolor=C_BG,
                   edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=6)
 
+    ax_lag = fig.add_axes([0.40, 0.10, 0.26, 0.21])
+    ax_lag.set_facecolor(C_PANEL)
+    ax_lag.set_title('per-cycle delay / rise', color=C_TEXT, fontsize=8, pad=3)
+    ax_lag.set_xlabel('cycle edge  s', color=C_DIM, fontsize=6)
+    ax_lag.set_ylabel('ms', color=C_DIM, fontsize=6)
+    ax_lag.tick_params(colors=C_DIM, labelsize=6)
+    for s in ax_lag.spines.values(): s.set_color(C_GRID)
+    ax_lag.legend(handles=[mpatches.Patch(color='#44aaff', label='delay'),
+                            mpatches.Patch(color='#00cc44', label='rise 0→90%')],
+                  loc='upper left', facecolor=C_BG, edgecolor=C_GRID,
+                  labelcolor=C_TEXT, fontsize=6)
+
     # Slider row — 6 sliders + mode toggle
     s_h, s_y, g = 0.028, 0.022, 0.087
     sl_axes = [fig.add_axes([0.03 + i * g, s_y, 0.075, s_h], facecolor=C_PANEL)
@@ -601,11 +661,11 @@ def _build_figure():
                      rmin=sl_rmin, rmax=sl_rmax, mode=rb_mode)
     textboxes = dict(zlo=tb_zlo, zhi=tb_zhi, ilo=tb_ilo, ihi=tb_ihi,
                      rmin=tb_rmin, rmax=tb_rmax)
-    return fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy
+    return fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_lag
 
 
 def run_desktop(state: DebugState):
-    fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy = _build_figure()
+    fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_lag = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
     H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
          'rep_vel': None, 'trail': [], 'texts': []}
@@ -615,6 +675,8 @@ def run_desktop(state: DebugState):
     ln_rep_vx, = ax_vx.plot(_empty, _empty, color='#44aaff', lw=1.5)
     ln_cmd_vy, = ax_vy.plot(_empty, _empty, color='#ff4466', lw=1.5)
     ln_rep_vy, = ax_vy.plot(_empty, _empty, color='#44aaff', lw=1.5)
+    ln_delay_cyc, = ax_lag.plot(_empty, _empty, 'o-', color='#44aaff', ms=5, lw=1.2)
+    ln_rise_cyc,  = ax_lag.plot(_empty, _empty, 's-', color='#00cc44', ms=5, lw=1.2)
 
     def _apply_filter_cfg():
         state.filter_cfg.set(
@@ -956,6 +1018,27 @@ def run_desktop(state: DebugState):
                 else:
                     _a.set_title(f'{_base}   (need more signal)', color=C_DIM, fontsize=8, pad=3)
 
+        # ── Per-cycle lag chart ───────────────────────────────────────────────
+        cycles = snap.get('cycle_metrics', [])
+        if cycles:
+            ct      = [c[0] for c in cycles]
+            delays  = [c[1] for c in cycles]
+            rises_t = [c[0] for c in cycles if c[2] is not None]
+            rises   = [c[2] for c in cycles if c[2] is not None]
+            ln_delay_cyc.set_data(ct, delays)
+            ln_rise_cyc.set_data(rises_t, rises)
+            ax_lag.set_xlim(min(ct) - 1.0, max(ct) + 1.0)
+            all_ms = delays + rises
+            ms_lo, ms_hi = min(all_ms), max(all_ms)
+            margin = max((ms_hi - ms_lo) * 0.15, 50.0)
+            ax_lag.set_ylim(ms_lo - margin, ms_hi + margin)
+            ax_lag.set_title(
+                f'per-cycle delay / rise  ({len(cycles)} cycles)',
+                color=C_TEXT, fontsize=8, pad=3)
+        else:
+            ln_delay_cyc.set_data([], [])
+            ln_rise_cyc.set_data([], [])
+
         fig.canvas.draw_idle()
 
     ani = FuncAnimation(fig, update, interval=80, cache_frame_data=False)
@@ -1257,14 +1340,62 @@ function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title){
     ctx2.fillText('(need more signal)',x0+w/2,y0+h-3);
   }
 }
+function drawCycleChart(ctx2,x0,y0,w,h,cycles){
+  ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
+  ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.7;ctx2.strokeRect(x0,y0,w,h);
+  const pad={l:36,r:6,t:16,b:18};
+  const pw=w-pad.l-pad.r,ph=h-pad.t-pad.b;
+  ctx2.fillStyle='#8b949e';ctx2.font='9px monospace';ctx2.textAlign='center';
+  ctx2.fillText('per-cycle delay / rise',x0+w/2,y0+11);
+  if(!cycles||!cycles.length){ctx2.fillText('waiting for cycles…',x0+w/2,y0+h/2);return;}
+  const delays=cycles.map(c=>c[1]);
+  const risePairs=cycles.filter(c=>c[2]!=null);
+  const rises=risePairs.map(c=>c[2]);
+  const allMs=[...delays,...rises];
+  let msMin=Math.min(...allMs),msMax=Math.max(...allMs);
+  const mg=Math.max((msMax-msMin)*0.15,50);msMin-=mg;msMax+=mg;
+  const msSpan=msMax-msMin||1;
+  const n=cycles.length;
+  const tx=i=>x0+pad.l+(n>1?i/(n-1):0.5)*pw;
+  const ty=v=>y0+pad.t+(1-(v-msMin)/msSpan)*ph;
+  // y axis labels
+  ctx2.textAlign='right';ctx2.font='8px monospace';ctx2.fillStyle='#8b949e';
+  ctx2.fillText(msMax.toFixed(0),x0+pad.l-2,y0+pad.t+4);
+  ctx2.fillText(msMin.toFixed(0),x0+pad.l-2,y0+pad.t+ph);
+  ctx2.fillText('ms',x0+pad.l-2,y0+pad.t+ph/2);
+  // delay line+dots
+  ctx2.strokeStyle='#44aaff';ctx2.lineWidth=1.5;ctx2.setLineDash([]);
+  ctx2.beginPath();
+  delays.forEach((v,i)=>{i===0?ctx2.moveTo(tx(i),ty(v)):ctx2.lineTo(tx(i),ty(v));});
+  ctx2.stroke();
+  delays.forEach((v,i)=>{ctx2.fillStyle='#44aaff';ctx2.beginPath();ctx2.arc(tx(i),ty(v),3,0,2*Math.PI);ctx2.fill();});
+  // rise line+dots (only cycles that reached 90%)
+  if(risePairs.length){
+    ctx2.strokeStyle='#00cc44';ctx2.lineWidth=1.5;
+    ctx2.beginPath();
+    risePairs.forEach((c,ri)=>{
+      const i=cycles.indexOf(c);
+      ri===0?ctx2.moveTo(tx(i),ty(c[2])):ctx2.lineTo(tx(i),ty(c[2]));
+    });
+    ctx2.stroke();
+    risePairs.forEach(c=>{const i=cycles.indexOf(c);ctx2.fillStyle='#00cc44';ctx2.beginPath();ctx2.arc(tx(i),ty(c[2]),3,0,2*Math.PI);ctx2.fill();});
+  }
+  // legend + cycle count
+  ctx2.font='8px monospace';ctx2.textAlign='left';
+  ctx2.fillStyle='#44aaff';ctx2.fillText('delay',x0+pad.l+2,y0+pad.t+10);
+  ctx2.fillStyle='#00cc44';ctx2.fillText('rise',x0+pad.l+36,y0+pad.t+10);
+  ctx2.textAlign='center';ctx2.fillStyle='#8b949e';
+  ctx2.fillText(n+' cycle'+(n===1?'':'s'),x0+w/2,y0+h-4);
+}
 function drawVelChart(d){
   const W=vcv.width,H=vcv.height;
   if(W<20||H<20)return;
   vctx.fillStyle=C.bg;vctx.fillRect(0,0,W,H);
-  const half=Math.floor(W/2)-3;
+  const gap=4,third=Math.floor((W-gap*2)/3);
   const times=d.vel_times||[];
-  drawMiniChart(vctx,0,0,half,H,times,d.cmd_vx_hist||[],d.rep_vx_hist||[],'vx (vision frame)');
-  drawMiniChart(vctx,half+6,0,half,H,times,d.cmd_vy_hist||[],d.rep_vy_hist||[],'vy (vision frame)');
+  drawMiniChart(vctx,0,0,third,H,times,d.cmd_vx_hist||[],d.rep_vx_hist||[],'vx (vision frame)');
+  drawMiniChart(vctx,third+gap,0,third,H,times,d.cmd_vy_hist||[],d.rep_vy_hist||[],'vy (vision frame)');
+  drawCycleChart(vctx,(third+gap)*2,0,W-(third+gap)*2,H,d.cycle_metrics||[]);
 }
 
 function setMode(m){
@@ -1770,6 +1901,9 @@ def run_web(state: DebugState, port=WEB_PORT):
             cmd_vy_hist      = snap.get('cmd_vy_hist', []),
             rep_vx_hist      = snap.get('rep_vx_hist', []),
             rep_vy_hist      = snap.get('rep_vy_hist', []),
+            step_delay_ms    = snap.get('step_delay_ms'),
+            step_rise_ms     = snap.get('step_rise_ms'),
+            cycle_metrics    = snap.get('cycle_metrics', []),
         ))
 
     # Build a "no signal" placeholder JPEG once at startup
