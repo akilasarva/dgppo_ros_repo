@@ -630,17 +630,18 @@ def _build_figure():
         _a.legend(handles=leg_patches, loc='upper left', facecolor=C_BG,
                   edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=6)
 
-    ax_lag = fig.add_axes([0.40, 0.10, 0.26, 0.21])
-    ax_lag.set_facecolor(C_PANEL)
-    ax_lag.set_title('per-cycle delay / rise', color=C_TEXT, fontsize=8, pad=3)
-    ax_lag.set_xlabel('cycle edge  s', color=C_DIM, fontsize=6)
-    ax_lag.set_ylabel('ms', color=C_DIM, fontsize=6)
-    ax_lag.tick_params(colors=C_DIM, labelsize=6)
-    for s in ax_lag.spines.values(): s.set_color(C_GRID)
-    ax_lag.legend(handles=[mpatches.Patch(color='#44aaff', label='delay'),
-                            mpatches.Patch(color='#00cc44', label='rise 0→90%')],
-                  loc='upper left', facecolor=C_BG, edgecolor=C_GRID,
-                  labelcolor=C_TEXT, fontsize=6)
+    def _cycle_ax(bottom, title, color):
+        a = fig.add_axes([0.40, bottom, 0.26, 0.095])
+        a.set_facecolor(C_PANEL)
+        a.set_title(title, color=color, fontsize=8, pad=2)
+        a.set_ylabel('ms', color=C_DIM, fontsize=6)
+        a.tick_params(colors=C_DIM, labelsize=6)
+        for s in a.spines.values(): s.set_color(C_GRID)
+        return a
+
+    ax_delay = _cycle_ax(0.212, 'pure delay  (transport)', '#44aaff')
+    ax_rise  = _cycle_ax(0.100, 'rise 0→90%  (mechanical)', '#00cc44')
+    ax_rise.set_xlabel('cycle edge  s', color=C_DIM, fontsize=6)
 
     # Slider row — 6 sliders + mode toggle
     s_h, s_y, g = 0.028, 0.022, 0.087
@@ -689,11 +690,11 @@ def _build_figure():
                      rmin=sl_rmin, rmax=sl_rmax, mode=rb_mode)
     textboxes = dict(zlo=tb_zlo, zhi=tb_zhi, ilo=tb_ilo, ihi=tb_ihi,
                      rmin=tb_rmin, rmax=tb_rmax)
-    return fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_lag
+    return fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise
 
 
 def run_desktop(state: DebugState):
-    fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_lag = _build_figure()
+    fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
     H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
          'rep_vel': None, 'trail': [], 'texts': []}
@@ -703,8 +704,8 @@ def run_desktop(state: DebugState):
     ln_rep_vx, = ax_vx.plot(_empty, _empty, color='#44aaff', lw=1.5)
     ln_cmd_vy, = ax_vy.plot(_empty, _empty, color='#ff4466', lw=1.5)
     ln_rep_vy, = ax_vy.plot(_empty, _empty, color='#44aaff', lw=1.5)
-    ln_delay_cyc, = ax_lag.plot(_empty, _empty, 'o-', color='#44aaff', ms=5, lw=1.2)
-    ln_rise_cyc,  = ax_lag.plot(_empty, _empty, 's-', color='#00cc44', ms=5, lw=1.2)
+    ln_delay_cyc, = ax_delay.plot(_empty, _empty, 'o-', color='#44aaff', ms=5, lw=1.2)
+    ln_rise_cyc,  = ax_rise.plot(_empty, _empty,  's-', color='#00cc44', ms=5, lw=1.2)
 
     def _apply_filter_cfg():
         state.filter_cfg.set(
@@ -1084,23 +1085,31 @@ def run_desktop(state: DebugState):
                 else:
                     _a.set_title(f'{_base}   (need more signal)', color=C_DIM, fontsize=8, pad=3)
 
-        # ── Per-cycle lag chart ───────────────────────────────────────────────
+        # ── Per-cycle stacked charts ──────────────────────────────────────────
         cycles = snap.get('cycle_metrics', [])
         if cycles:
             ct      = [c[0] for c in cycles]
             delays  = [c[1] for c in cycles]
             rises_t = [c[0] for c in cycles if c[2] is not None]
             rises   = [c[2] for c in cycles if c[2] is not None]
+            x_lo, x_hi = min(ct) - 1.0, max(ct) + 1.0
+
             ln_delay_cyc.set_data(ct, delays)
+            ax_delay.set_xlim(x_lo, x_hi)
+            d_margin = max(max(delays) * 0.15, 50.0)
+            ax_delay.set_ylim(max(0, min(delays) - d_margin), max(delays) + d_margin)
+            ax_delay.set_title(
+                f'pure delay  ({len(cycles)} cycles)',
+                color='#44aaff', fontsize=8, pad=2)
+
             ln_rise_cyc.set_data(rises_t, rises)
-            ax_lag.set_xlim(min(ct) - 1.0, max(ct) + 1.0)
-            all_ms = delays + rises
-            ms_lo, ms_hi = min(all_ms), max(all_ms)
-            margin = max((ms_hi - ms_lo) * 0.15, 50.0)
-            ax_lag.set_ylim(ms_lo - margin, ms_hi + margin)
-            ax_lag.set_title(
-                f'per-cycle delay / rise  ({len(cycles)} cycles)',
-                color=C_TEXT, fontsize=8, pad=3)
+            ax_rise.set_xlim(x_lo, x_hi)
+            if rises:
+                r_margin = max(max(rises) * 0.15, 50.0)
+                ax_rise.set_ylim(max(0, min(rises) - r_margin), max(rises) + r_margin)
+            ax_rise.set_title(
+                f'rise 0→90%  ({len(rises)} of {len(cycles)} cycles)',
+                color='#00cc44', fontsize=8, pad=2)
         else:
             ln_delay_cyc.set_data([], [])
             ln_rise_cyc.set_data([], [])
@@ -1408,46 +1417,44 @@ function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title,lagOverride=unde
     ctx2.fillText('(need more signal)',x0+w/2,y0+h-3);
   }
 }
-function drawCycleChart(ctx2,x0,y0,w,h,cycles){
+function _drawCycleHalf(ctx2,x0,y0,w,h,txFn,vals,color,title,countStr){
   ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
   ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.7;ctx2.strokeRect(x0,y0,w,h);
-  const pad={l:36,r:6,t:16,b:18};
-  const pw=w-pad.l-pad.r,ph=h-pad.t-pad.b;
-  ctx2.fillStyle='#8b949e';ctx2.font='9px monospace';ctx2.textAlign='center';
-  ctx2.fillText('per-cycle delay / rise',x0+w/2,y0+11);
-  if(!cycles||!cycles.length){ctx2.fillText('waiting for cycles…',x0+w/2,y0+h/2);return;}
+  const padL=36,padT=14,padB=8,ph=h-padT-padB;
+  ctx2.font='8px monospace';ctx2.fillStyle=color;ctx2.textAlign='left';
+  ctx2.fillText(title,x0+padL+2,y0+11);
+  ctx2.fillStyle='#8b949e';ctx2.textAlign='right';
+  ctx2.fillText(countStr,x0+w-4,y0+11);
+  if(!vals.length){ctx2.textAlign='center';ctx2.fillText('waiting…',x0+w/2,y0+h/2);return;}
+  let vMin=Math.min(...vals),vMax=Math.max(...vals);
+  const mg=Math.max((vMax-vMin)*0.15,50);vMin=Math.max(0,vMin-mg);vMax+=mg;
+  const vSpan=vMax-vMin||1;
+  const ty=v=>y0+padT+(1-(v-vMin)/vSpan)*ph;
+  ctx2.font='7px monospace';ctx2.fillStyle='#8b949e';ctx2.textAlign='right';
+  ctx2.fillText(vMax.toFixed(0),x0+padL-2,y0+padT+4);
+  ctx2.fillText(vMin.toFixed(0),x0+padL-2,y0+padT+ph);
+  ctx2.strokeStyle=color;ctx2.lineWidth=1.5;ctx2.setLineDash([]);
+  ctx2.beginPath();
+  vals.forEach((v,i)=>{i===0?ctx2.moveTo(txFn(i),ty(v)):ctx2.lineTo(txFn(i),ty(v));});
+  ctx2.stroke();
+  vals.forEach((v,i)=>{ctx2.fillStyle=color;ctx2.beginPath();ctx2.arc(txFn(i),ty(v),3,0,2*Math.PI);ctx2.fill();});
+}
+function drawCycleChart(ctx2,x0,y0,w,h,cycles){
+  if(!cycles||!cycles.length){
+    ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
+    ctx2.fillStyle='#8b949e';ctx2.font='9px monospace';ctx2.textAlign='center';
+    ctx2.fillText('waiting for cycles…',x0+w/2,y0+h/2);return;
+  }
+  const gap=3,hTop=Math.floor((h-gap)/2),hBot=h-hTop-gap;
+  const n=cycles.length,pw=w-42;
   const delays=cycles.map(c=>c[1]);
   const risePairs=cycles.filter(c=>c[2]!=null);
   const rises=risePairs.map(c=>c[2]);
-  const allMs=[...delays,...rises];
-  let msMin=Math.min(...allMs),msMax=Math.max(...allMs);
-  const mg=Math.max((msMax-msMin)*0.15,50);msMin-=mg;msMax+=mg;
-  const msSpan=msMax-msMin||1;
-  const n=cycles.length;
-  const tx=i=>x0+pad.l+(n>1?i/(n-1):0.5)*pw;
-  const ty=v=>y0+pad.t+(1-(v-msMin)/msSpan)*ph;
-  // y axis labels
-  ctx2.textAlign='right';ctx2.font='8px monospace';ctx2.fillStyle='#8b949e';
-  ctx2.fillText(msMax.toFixed(0),x0+pad.l-2,y0+pad.t+4);
-  ctx2.fillText(msMin.toFixed(0),x0+pad.l-2,y0+pad.t+ph);
-  ctx2.fillText('ms',x0+pad.l-2,y0+pad.t+ph/2);
-  // delay line+dots
-  ctx2.strokeStyle='#44aaff';ctx2.lineWidth=1.5;ctx2.setLineDash([]);
-  ctx2.beginPath();
-  delays.forEach((v,i)=>{i===0?ctx2.moveTo(tx(i),ty(v)):ctx2.lineTo(tx(i),ty(v));});
-  ctx2.stroke();
-  delays.forEach((v,i)=>{ctx2.fillStyle='#44aaff';ctx2.beginPath();ctx2.arc(tx(i),ty(v),3,0,2*Math.PI);ctx2.fill();});
-  // rise line+dots (only cycles that reached 90%)
-  if(risePairs.length){
-    ctx2.strokeStyle='#00cc44';ctx2.lineWidth=1.5;
-    ctx2.beginPath();
-    risePairs.forEach((c,ri)=>{
-      const i=cycles.indexOf(c);
-      ri===0?ctx2.moveTo(tx(i),ty(c[2])):ctx2.lineTo(tx(i),ty(c[2]));
-    });
-    ctx2.stroke();
-    risePairs.forEach(c=>{const i=cycles.indexOf(c);ctx2.fillStyle='#00cc44';ctx2.beginPath();ctx2.arc(tx(i),ty(c[2]),3,0,2*Math.PI);ctx2.fill();});
-  }
+  const txD=i=>x0+36+(n>1?i/(n-1):0.5)*pw;
+  const txR=i=>{const ri=cycles.indexOf(risePairs[i]);return x0+36+(n>1?ri/(n-1):0.5)*pw;};
+  _drawCycleHalf(ctx2,x0,y0,w,hTop,txD,delays,'#44aaff','pure delay',n+' cyc');
+  _drawCycleHalf(ctx2,x0,y0+hTop+gap,w,hBot,txR,rises,'#00cc44','rise 0←90%',rises.length+'/'+n);
+}
   // legend + cycle count
   ctx2.font='8px monospace';ctx2.textAlign='left';
   ctx2.fillStyle='#44aaff';ctx2.fillText('delay',x0+pad.l+2,y0+pad.t+10);
@@ -1561,11 +1568,18 @@ function draw(d){
     });
   }
 
-  // Layer 2: slice — Z=yellow, Intensity=magenta (body frame)
+  // Layer 2: slice — noise=red (density-fail), structure=slice color (density-pass)
   const slCol=useIntensity?C.sliceI:C.sliceZ;
-  if(d.cloud_slice&&d.cloud_slice.length){
+  if(d.cloud_slice_fail&&d.cloud_slice_fail.length){
+    ctx.fillStyle='#ff4444';ctx.globalAlpha=0.70;
+    d.cloud_slice_fail.forEach(([x,y])=>{
+      ctx.beginPath();ctx.arc(cx+x*sc,cy-y*sc,2.5,0,2*Math.PI);ctx.fill();
+    });
+    ctx.globalAlpha=1;
+  }
+  if(d.cloud_slice_pass&&d.cloud_slice_pass.length){
     ctx.fillStyle=slCol;ctx.globalAlpha=0.85;
-    d.cloud_slice.forEach(([x,y])=>{
+    d.cloud_slice_pass.forEach(([x,y])=>{
       ctx.beginPath();ctx.arc(cx+x*sc,cy-y*sc,2.5,0,2*Math.PI);ctx.fill();
     });
     ctx.globalAlpha=1;
@@ -1690,12 +1704,18 @@ function initThree(){
     new THREE.PointsMaterial({size:0.06,color:0x3a3a5a,transparent:true,opacity:0.7})
   );
   _t3.scene.add(_t3.ptsMesh);
-  // In-slice cloud (bright)
+  // In-slice cloud — structure (density-pass, bright)
   _t3.sliceMesh=new THREE.Points(
     new THREE.BufferGeometry(),
     new THREE.PointsMaterial({size:0.10,color:0xffcc00})
   );
   _t3.scene.add(_t3.sliceMesh);
+  // In-slice cloud — noise (density-fail, red)
+  _t3.noiseMesh=new THREE.Points(
+    new THREE.BufferGeometry(),
+    new THREE.PointsMaterial({size:0.10,color:0xff4444})
+  );
+  _t3.scene.add(_t3.noiseMesh);
   // Slice planes
   const plGeo=new THREE.PlaneGeometry(16,16);
   const plMat=()=>new THREE.MeshBasicMaterial({color:0xffcc00,transparent:true,opacity:0.07,side:THREE.DoubleSide});
@@ -1725,14 +1745,20 @@ function updateThree(d){
   for(let i=0;i<pts.length;i++){const[tx,ty,tz]=toW3(pts[i][0],pts[i][1],pts[i][2]);posA[i*3]=tx;posA[i*3+1]=ty;posA[i*3+2]=tz;}
   _t3.ptsMesh.geometry.setAttribute('position',new THREE.BufferAttribute(posA,3));
   _t3.ptsMesh.geometry.computeBoundingSphere();
-  // In-slice points
-  const sl=pts.filter(p=>p[2]>=zLo&&p[2]<=zHi);
-  if(sl.length){
-    const posS=new Float32Array(sl.length*3);
-    for(let i=0;i<sl.length;i++){const[tx,ty,tz]=toW3(sl[i][0],sl[i][1],sl[i][2]);posS[i*3]=tx;posS[i*3+1]=ty;posS[i*3+2]=tz;}
-    _t3.sliceMesh.geometry.setAttribute('position',new THREE.BufferAttribute(posS,3));
-    _t3.sliceMesh.geometry.computeBoundingSphere();
+  // Structure points (density-pass) — slice color
+  function fillMesh(mesh,arr){
+    if(!mesh)return;
+    if(arr&&arr.length){
+      const pos=new Float32Array(arr.length*3);
+      for(let i=0;i<arr.length;i++){const[tx,ty,tz]=toW3(arr[i][0],arr[i][1],arr[i][2]);pos[i*3]=tx;pos[i*3+1]=ty;pos[i*3+2]=tz;}
+      mesh.geometry.setAttribute('position',new THREE.BufferAttribute(pos,3));
+      mesh.geometry.computeBoundingSphere();
+    } else {
+      mesh.geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(0),3));
+    }
   }
+  fillMesh(_t3.sliceMesh,d.cloud_3d_pass);
+  fillMesh(_t3.noiseMesh,d.cloud_3d_fail);
 }
 
 function resizeThree(){
@@ -1934,21 +1960,46 @@ def run_web(state: DebugState, port=WEB_PORT):
         a0, a1 = float(snap['action'][0]), float(snap['action'][1])
         current_step, bearing_rad = _bearing_for_step(snap)
 
-        cloud_all, cloud_slice, cloud_3d = [], [], []
-        rc = snap.get('raw_cloud')
+        cloud_all = []
+        cloud_slice_pass, cloud_slice_fail = [], []
+        cloud_3d, cloud_3d_pass, cloud_3d_fail = [], [], []
+        rc  = snap.get('raw_cloud')
+        cfg_s = snap['filter_cfg']
         if rc is not None and len(rc):
             # _apply_slice_filter returns x already negated for upside-down correction;
             # web JS uses cx+x*sc (no additional negation)
-            all_xy, slice_xy = _apply_slice_filter(rc, snap['filter_cfg'])
+            all_xy, slice_xy = _apply_slice_filter(rc, cfg_s)
             if all_xy is not None and len(all_xy):
                 stride = max(1, len(all_xy) // 600)
                 cloud_all = all_xy[::stride].tolist()
             if slice_xy is not None and len(slice_xy):
-                stride = max(1, len(slice_xy) // 300)
-                cloud_slice = slice_xy[::stride].tolist()
-            stride_3d  = max(1, len(rc) // 400)
-            pts_3d     = rc[::stride_3d]
-            cloud_3d   = pts_3d[:, :3].tolist()
+                pm = _apply_density_filter(slice_xy,
+                                           cfg_s['density_radius'],
+                                           cfg_s['min_neighbors'])
+                for pts_sub, dest in [(slice_xy[pm], cloud_slice_pass),
+                                      (slice_xy[~pm], cloud_slice_fail)]:
+                    if len(pts_sub):
+                        s = max(1, len(pts_sub) // 300)
+                        dest.extend(pts_sub[::s].tolist())
+
+            # 3D: density-classify on pre-stride cloud, then stride for transfer
+            z_all_w = rc[:, 2]
+            ib_all  = (z_all_w >= cfg_s['z_lower']) & (z_all_w <= cfg_s['z_upper'])
+            dp3     = np.zeros(len(rc), dtype=bool)
+            if np.any(ib_all):
+                pm3 = _apply_density_filter(rc[ib_all, :2],
+                                            cfg_s['density_radius'],
+                                            cfg_s['min_neighbors'])
+                dp3[np.where(ib_all)[0][pm3]] = True
+            df3 = ib_all & ~dp3
+
+            stride_3d = max(1, len(rc) // 400)
+            cloud_3d  = rc[::stride_3d, :3].tolist()
+            for pts_sub, dest, cap in [(rc[dp3], cloud_3d_pass, 200),
+                                       (rc[df3], cloud_3d_fail, 100)]:
+                if len(pts_sub):
+                    s = max(1, len(pts_sub) // cap)
+                    dest.extend(pts_sub[::s, :3].tolist())
 
         return jsonify(dict(
             action           = [a0, a1],
@@ -1962,8 +2013,11 @@ def run_web(state: DebugState, port=WEB_PORT):
             processed_ranges = snap['processed_ranges'].tolist()
                                if snap['processed_ranges'] is not None else None,
             cloud_all        = cloud_all,
-            cloud_slice      = cloud_slice,
+            cloud_slice_pass = cloud_slice_pass,
+            cloud_slice_fail = cloud_slice_fail,
             cloud_3d         = cloud_3d,
+            cloud_3d_pass    = cloud_3d_pass,
+            cloud_3d_fail    = cloud_3d_fail,
             filter_cfg       = snap['filter_cfg'],
             state_debug      = snap.get('state_debug'),
             vel_times        = snap.get('vel_times', []),
