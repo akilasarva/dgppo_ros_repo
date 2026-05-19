@@ -9,3 +9,4 @@ install/
 ros2_bag_exporter/
 dgppo_venv/
 docs/superpowers/
+**/__pycache__/

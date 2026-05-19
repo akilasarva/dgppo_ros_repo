@@ -23,7 +23,10 @@ from collections import deque
 
 import numpy as np
 import matplotlib
-matplotlib.use('TkAgg')
+# Default to TkAgg for the desktop UI, but honor MPLBACKEND when set so
+# headless deployments (e.g. --web-only on a server) can pick Agg.
+if not os.environ.get('MPLBACKEND'):
+    matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from matplotlib.animation import FuncAnimation
@@ -48,10 +51,23 @@ _CAM_Q = 55    # JPEG quality
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import Int16, Int32, Float32MultiArray
+from std_msgs.msg import Int16, Int32, Float32MultiArray, String
 from sensor_msgs.msg import PointCloud2, Image
 from sensor_msgs_py.point_cloud2 import read_points
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import (
+    DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy,
+    qos_profile_sensor_data,
+)
+
+
+# nl_planner publishes /nl_planner/status latched (TRANSIENT_LOCAL) so the
+# UI gets the most recent phase even if it joins late.
+_NL_STATUS_QOS = QoSProfile(
+    depth=1,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    reliability=ReliabilityPolicy.RELIABLE,
+    history=HistoryPolicy.KEEP_LAST,
+)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -152,6 +168,17 @@ class FilterConfig:
 
 # ── Shared state ──────────────────────────────────────────────────────────────
 
+_INITIAL_NL_STATUS = {
+    "phase":     "unknown",
+    "mission":   "",
+    "attempts":  None,
+    "plan_name": None,
+    "stl":       None,
+    "error":     None,
+    "ts":        0.0,
+}
+
+
 class DebugState:
     def __init__(self, plan_sequence, bearing_map, filter_cfg: FilterConfig):
         self._lock           = threading.Lock()
@@ -169,7 +196,7 @@ class DebugState:
         self.raw_frame_jpg   = None   # bytes: JPEG of raw ZED image
         self.hsv_frame_jpg   = None   # bytes: JPEG of HSV-segmented image
         self.state_debug     = None   # 12-float transform debug from /dgppo_state_debug
-        # velocity time-series (cmd vs reported, vision frame)
+        # velocity time-series (cmd vs reported, vision frame) -- from transform_fix
         self._vel_t0    = None
         self.vel_times   = deque(maxlen=VEL_HIST_LEN)
         self.cmd_vx_hist = deque(maxlen=VEL_HIST_LEN)
@@ -181,6 +208,18 @@ class DebugState:
         self.step_rise_ms  = None
         # per-cycle metrics: one entry per rising edge seen
         self.cycle_metrics = deque(maxlen=50)
+        # nl_planner mission UI: latest status payload from /nl_planner/status
+        # and a back-pointer to the ROS node so Flask handlers can publish.
+        self.nl_planner_status = dict(_INITIAL_NL_STATUS)
+        self.node: Node | None = None
+
+    def set_nl_planner_status(self, status: dict):
+        with self._lock:
+            self.nl_planner_status = dict(status)
+
+    def get_nl_planner_status(self) -> dict:
+        with self._lock:
+            return dict(self.nl_planner_status)
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -298,6 +337,18 @@ class DebugSubscriber(Node):
         self._cfg_pub = self.create_publisher(Float32MultiArray, '/lidar_filter_config', 10)
         self.create_timer(0.2, self._pub_cfg)
 
+        # nl_planner mission UI bridge:
+        #   - publish English missions to /nl_planner/mission (the
+        #     mission_bridge node async-calls /nl_planner/plan)
+        #   - cache the latched /nl_planner/status JSON so the Flask UI
+        #     can mirror it back to the browser.
+        self._mission_pub = self.create_publisher(
+            String, '/nl_planner/mission', 10,
+        )
+        self.create_subscription(
+            String, '/nl_planner/status', self._cb_nl_status, _NL_STATUS_QOS,
+        )
+
     def _cb_action(self, msg):
         if len(msg.data) >= 2:
             self.state.set_action(msg.data[0], msg.data[1])
@@ -342,6 +393,23 @@ class DebugSubscriber(Node):
     def _cb_hsv_img(self, msg):
         _encode_frame(msg, self.state.set_hsv_frame)
 
+    def _cb_nl_status(self, msg: String):
+        try:
+            payload = json.loads(msg.data)
+            if isinstance(payload, dict):
+                self.state.set_nl_planner_status(payload)
+        except Exception as exc:
+            self.get_logger().warn(
+                f'bad /nl_planner/status JSON: {exc}', throttle_duration_sec=5.0,
+            )
+
+    def publish_mission(self, text: str) -> None:
+        """Publish ``text`` on /nl_planner/mission (called from Flask thread)."""
+        msg = String()
+        msg.data = text
+        self._mission_pub.publish(msg)
+        self.get_logger().info(f'[mission_ui] dispatched mission to bridge: {text!r}')
+
     def _pub_cfg(self):
         cfg = self.state.filter_cfg.get()
         m = Float32MultiArray()
@@ -377,9 +445,11 @@ def _encode_frame(msg: Image, setter):
 def _ros_thread(state: DebugState):
     rclpy.init()
     node = DebugSubscriber(state)
+    state.node = node
     try:
         rclpy.spin(node)
     finally:
+        state.node = None
         node.destroy_node()
         rclpy.shutdown()
 
@@ -1212,8 +1282,62 @@ input.r{accent-color:var(--lidar)}
 .rsz-h:hover,.rsz-h.rsz-act{background:var(--act)}
 .rsz-v{height:5px;cursor:row-resize;background:var(--grid);flex-shrink:0;transition:background .15s}
 .rsz-v:hover,.rsz-v.rsz-act{background:var(--act)}
+/* ── velocity overlay panel (from transform_fix) ──────────────────── */
 #vel-area{background:var(--panel);border-top:1px solid var(--grid);padding:4px 10px;height:130px;flex-shrink:0;overflow:hidden;display:flex;align-items:stretch}
 #vcv{flex:1;display:block}
+/* ── nl_planner mission UI ─────────────────────────────────────────────
+   A modal opened from the header pill button. Lives at the bottom of <body>
+   so it doesn't interfere with the main grid layout. All previous
+   `#mission-card` real estate has been reclaimed for the graphs. */
+#mission-open-btn{background:transparent;border:none;cursor:pointer;
+                  padding:2px 4px;display:inline-flex;align-items:center;gap:6px}
+#mission-open-btn .mm-lbl{font-size:10px;color:var(--dim);
+                          text-transform:uppercase;letter-spacing:.07em;
+                          font-family:monospace;white-space:nowrap}
+#mission-open-btn:hover .mm-lbl{color:var(--txt)}
+.ph{display:inline-block;padding:1px 8px;border-radius:10px;
+    font-size:9px;font-weight:bold;letter-spacing:.06em;text-transform:uppercase;
+    font-family:monospace}
+.ph-idle    {background:#222;       color:var(--dim)}
+.ph-planning{background:#0a1f2a;     color:var(--act)}
+.ph-ok      {background:#0a2a0a;     color:var(--lidar)}
+.ph-error   {background:#2a0a0a;     color:var(--warn)}
+.ph-busy    {background:#2a1a0a;     color:var(--bear)}
+.ph-unknown {background:#222;        color:var(--dim)}
+#mission-modal{position:fixed;inset:0;background:rgba(0,0,0,0.55);
+               display:flex;align-items:center;justify-content:center;
+               z-index:1000}
+#mission-modal.mm-hidden{display:none}
+#mission-modal .mm-card{background:var(--panel);border:1px solid var(--grid);
+                        border-radius:6px;padding:14px 16px;width:min(720px,92vw);
+                        max-height:88vh;overflow:auto;
+                        box-shadow:0 12px 40px rgba(0,0,0,0.55);
+                        font-size:11px;display:flex;flex-direction:column;gap:8px}
+#mission-modal .mm-head{display:flex;align-items:center;justify-content:space-between;
+                        font-size:11px;color:var(--dim);text-transform:uppercase;
+                        letter-spacing:.06em}
+#mission-modal .mm-close{background:transparent;border:none;color:var(--dim);
+                         font-size:18px;cursor:pointer;padding:0 4px;line-height:1}
+#mission-modal .mm-close:hover{color:var(--txt)}
+#mission-modal textarea{width:100%;min-height:80px;max-height:220px;resize:vertical;
+                        background:var(--bg);color:var(--txt);
+                        border:1px solid var(--grid);border-radius:3px;
+                        padding:6px 8px;font-family:monospace;font-size:12px}
+#mission-modal textarea:focus{outline:none;border-color:var(--circ)}
+#mission-modal .mm-row{display:flex;align-items:center;gap:10px}
+#mission-modal .mm-row .btn{margin-left:auto;padding:5px 16px;font-size:11px;
+                            border:1px solid var(--circ);background:var(--bg);
+                            color:var(--circ);cursor:pointer;border-radius:3px;
+                            font-family:monospace}
+#mission-modal .mm-row .btn:hover:not(:disabled){background:var(--circ);color:var(--bg)}
+#mission-modal .mm-row .btn:disabled{opacity:0.4;cursor:not-allowed;
+                                     border-color:var(--grid);color:var(--dim)}
+#mission-modal .mm-attempts{color:var(--dim);font-size:10px}
+#mission-modal .det{color:var(--dim);line-height:1.5;word-break:break-word;
+                    border-top:1px solid var(--grid);padding-top:6px}
+#mission-modal .det .v{color:var(--txt)}
+#mission-modal .det .err{color:var(--warn)}
+#mission-modal .det .stl{color:var(--bear);font-family:monospace;font-size:10px}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
@@ -1222,7 +1346,11 @@ input.r{accent-color:var(--lidar)}
 <header>DGPPO Policy Debugger v2
   <span id="badge">connecting…</span>
   <span style="font-size:10px;color:var(--dim)">TOP=FWD · Lidar x-flipped · Arrows 0=FWD=UP</span>
-  <button id="theme-btn" class="mbtn" onclick="toggleTheme()" style="margin-left:auto">☀ Light</button>
+  <!-- nl_planner header pill: click to open the mission modal. The label
+       names the feature; the pill mirrors the most recent /nl_planner/status
+       payload (idle / planning / ok / error / busy). -->
+  <button id="mission-open-btn" class="mbtn" onclick="toggleMissionModal()" title="English mission → /nl_planner/plan → brain" style="margin-left:auto"><span class="mm-lbl">english → stl</span><span id="mission-phase-mini" class="ph ph-unknown">PLAN</span></button>
+  <button id="theme-btn" class="mbtn" onclick="toggleTheme()">☀ Light</button>
 </header>
 <main>
   <div id="cw"><canvas id="cv"></canvas></div>
@@ -1340,6 +1468,27 @@ input.r{accent-color:var(--lidar)}
     </div>
   </div>
 </div>
+
+<!-- nl_planner mission modal — placed just before <script> so the script
+     (which attaches a keydown listener to #mission-text at load time) finds
+     the DOM nodes. Lives outside <main>, so opening it does NOT reflow the
+     graphs. Triggered by #mission-open-btn in the header. -->
+<div id="mission-modal" class="mm-hidden" onclick="if(event.target===this)toggleMissionModal(false)">
+  <div class="mm-card">
+    <div class="mm-head">
+      <span>English mission &rarr; /nl_planner/plan &rarr; brain</span>
+      <button class="mm-close" onclick="toggleMissionModal(false)" aria-label="close">×</button>
+    </div>
+    <textarea id="mission-text" placeholder="e.g. drive forward along the road, turn right at the intersection if the right turn is clear"></textarea>
+    <div class="mm-row">
+      <span id="mission-phase" class="ph ph-unknown">unknown</span>
+      <span id="mission-attempts" class="mm-attempts"></span>
+      <button id="mission-btn" class="btn" onclick="submitMission()">Generate plan</button>
+    </div>
+    <div class="det" id="mission-detail"></div>
+  </div>
+</div>
+
 <script>
 const CN={0:'open_space',1:'approach_bridge',2:'on_bridge',3:'exit_bridge'};
 const TN={0:'Road',1:'Grass',2:'Sidewalk'};
@@ -2000,6 +2149,95 @@ makeSplitter(document.getElementById('rsz4'),document.getElementById('cameras'),
 makeSplitter(document.getElementById('rsz5'),document.getElementById('vel-area'),document.getElementById('sliders'),'v');
 window.addEventListener('resize',resize);
 fetch('/api/state').then(r=>r.json()).then(d=>{initSliders(d.filter_cfg);resize();loop();}).catch(()=>{resize();loop();});
+
+/* ── nl_planner mission modal ─────────────────────────────────────────
+   Modal opens via the header pill (#mission-open-btn / toggleMissionModal),
+   not embedded in the main grid. The textarea/button/status detail IDs are
+   preserved from the previous in-page card so the submit + poll logic below
+   does not need rewiring. */
+function toggleMissionModal(force){
+  const m=document.getElementById('mission-modal');
+  if(!m)return;
+  const showing=!m.classList.contains('mm-hidden');
+  const next=(force===true)||(force===false)?force:!showing;
+  m.classList.toggle('mm-hidden',!next);
+  if(next){
+    const ta=document.getElementById('mission-text');
+    if(ta)setTimeout(()=>ta.focus(),20);
+  }
+}
+window.addEventListener('keydown',e=>{
+  // Esc closes the modal; Ctrl/Cmd-/ opens it (when no input has focus).
+  if(e.key==='Escape')toggleMissionModal(false);
+  if(e.key==='/'&&(e.ctrlKey||e.metaKey)){e.preventDefault();toggleMissionModal(true);}
+});
+function escapeHtml(s){
+  if(s==null)return '';
+  return String(s).replace(/[&<>"']/g,c=>(
+    {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+async function submitMission(){
+  const ta=document.getElementById('mission-text');
+  const btn=document.getElementById('mission-btn');
+  const text=(ta.value||'').trim();
+  if(!text){ta.focus();return;}
+  btn.disabled=true;
+  try{
+    const r=await fetch('/api/mission',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({mission:text})
+    });
+    const d=await r.json().catch(()=>({}));
+    if(!r.ok){
+      _setMissionPhase('error');
+      document.getElementById('mission-detail').innerHTML=
+        '<span class="err">'+escapeHtml(d.error||r.statusText)+'</span>';
+    }
+  }catch(e){
+    document.getElementById('mission-detail').innerHTML=
+      '<span class="err">'+escapeHtml(e.message||String(e))+'</span>';
+  }finally{
+    setTimeout(()=>{btn.disabled=false;},250);
+  }
+}
+document.getElementById('mission-text').addEventListener('keydown',e=>{
+  // Ctrl/Cmd-Enter submits without needing to click the button.
+  if(e.key==='Enter' && (e.ctrlKey||e.metaKey)){e.preventDefault();submitMission();}
+});
+function _setMissionPhase(phase){
+  // Mirror the phase to both the modal's pill and the header mini-pill.
+  const cls='ph ph-'+(['idle','planning','ok','error','busy'].includes(phase)?phase:'unknown');
+  const modalPill=document.getElementById('mission-phase');
+  if(modalPill){modalPill.textContent=phase;modalPill.className=cls;}
+  const headerPill=document.getElementById('mission-phase-mini');
+  if(headerPill){
+    headerPill.textContent=(phase==='unknown'?'PLAN':phase);
+    headerPill.className=cls;
+  }
+}
+function renderMissionStatus(s){
+  _setMissionPhase((s.phase||'unknown').toLowerCase());
+  const attEl=document.getElementById('mission-attempts');
+  if(attEl)attEl.textContent=(s.attempts!=null)?('attempts: '+s.attempts):'';
+  const lines=[];
+  if(s.mission)   lines.push('<div>mission: <span class="v">'+escapeHtml(s.mission)+'</span></div>');
+  if(s.plan_name) lines.push('<div>plan: <span class="v">'+escapeHtml(s.plan_name)+'</span></div>');
+  if(s.stl)       lines.push('<div>STL: <span class="stl">'+escapeHtml(s.stl)+'</span></div>');
+  if(s.error)     lines.push('<div class="err">'+escapeHtml(s.error)+'</div>');
+  const det=document.getElementById('mission-detail');
+  if(det)det.innerHTML=lines.join('');
+}
+async function missionLoop(){
+  while(true){
+    try{
+      const r=await fetch('/api/nl_planner_status');
+      if(r.ok)renderMissionStatus(await r.json());
+    }catch(e){/* ignore — main /api/state loop owns the connection badge */}
+    await new Promise(r=>setTimeout(r,800));
+  }
+}
+missionLoop();
 </script>
 </body>
 </html>"""
@@ -2127,6 +2365,30 @@ def run_web(state: DebugState, port=WEB_PORT):
                    'int_lower', 'int_upper'}
         state.filter_cfg.set(**{k: v for k, v in data.items() if k in allowed})
         return jsonify({'ok': True})
+
+    @app.route('/api/mission', methods=['POST'])
+    def api_mission():
+        """Operator submitted a mission. Publish it on /nl_planner/mission.
+
+        nl_planner's mission_bridge node async-calls /nl_planner/plan and
+        latched-publishes phase updates on /nl_planner/status (which we
+        cache and expose via /api/nl_planner_status).
+        """
+        data = freq.get_json(silent=True) or {}
+        mission = (data.get('mission') or '').strip()
+        if not mission:
+            return jsonify({'ok': False, 'error': 'empty mission'}), 400
+        if state.node is None:
+            return jsonify({'ok': False, 'error': 'ROS node not ready'}), 503
+        try:
+            state.node.publish_mission(mission)
+        except Exception as exc:
+            return jsonify({'ok': False, 'error': f'publish failed: {exc}'}), 500
+        return jsonify({'ok': True, 'mission': mission}), 202
+
+    @app.route('/api/nl_planner_status')
+    def api_nl_planner_status():
+        return jsonify(state.get_nl_planner_status())
 
     print(f"[WEB] http://0.0.0.0:{port}  (remote: http://<robot-ip>:{port})")
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False, threaded=True)

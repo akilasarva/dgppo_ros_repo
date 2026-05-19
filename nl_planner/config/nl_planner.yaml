@@ -8,7 +8,7 @@ nl_planner:
     taxonomy_path: ""
     # pydantic-ai provider:model id. The OPENAI_API_KEY env var is consumed
     # by the underlying openai client.
-    model: "openai:gpt-4o-mini"
+    model: "openai:gpt-4o"
     # Hard cap on generator retries. Each retry costs ~3 LLM calls (gen +
     # syntax + tripartite), so 3 attempts ~= 9 calls worst case.
     max_attempts: 3
@@ -17,9 +17,10 @@ nl_planner:
 
 nl_planner_executor:
   ros__parameters:
+    # Thin shipper: takes the NavPlan tree from /nl_planner/dispatch, resolves
+    # semantic modes against the taxonomy, and forwards the brain-shaped tree
+    # to /brain/incoming_plan (then calls /brain/load_plan). VLM branch
+    # decisions happen INSIDE brain_controller (v2), so no vlm_model /
+    # image_topic params here.
     taxonomy_path: ""
-    # OpenAI vision model used at branch decision points.
-    vlm_model: "gpt-4o-mini"
-    # Should match brain_controller's image_topic param.
-    image_topic: "/hamilton/hamilton_zed/rgb/image_rect_color"
     brain_load_plan_timeout_s: 5.0

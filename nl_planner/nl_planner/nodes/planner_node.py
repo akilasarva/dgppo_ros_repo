@@ -9,9 +9,15 @@ Exposes:
 
 ROS parameters:
   taxonomy_path  (string)  required — path to cluster_map.<env>.yaml.
-  model          (string)  default 'openai:gpt-4o-mini' — pydantic-ai model id.
-  max_attempts   (int)     default 3 — generator retries.
-  verify_syntax  (bool)    default True.
+  model          (string)  default 'openai:gpt-4o' — pydantic-ai model id.
+                           gpt-4o-mini was demoted in May 2026 — it could
+                           not reliably produce schema-valid branching plans
+                           with balanced STL even with retries + feedback.
+  max_attempts   (int)     default 5 — generator retries. Each retry attaches
+                           the previous attempt's verifier feedback to the
+                           generator prompt.
+  verify_syntax  (bool)    default True — runs the deterministic
+                           stl_syntax.quick_syntax_check on every formula.
   verify_tripartite (bool) default True.
 """
 
@@ -48,7 +54,7 @@ class PlannerNode(Node):
         # --- Parameters ---
         self.declare_parameter("taxonomy_path", "")
         self.declare_parameter("model", DEFAULT_MODEL_ID)
-        self.declare_parameter("max_attempts", 3)
+        self.declare_parameter("max_attempts", 5)
         self.declare_parameter("verify_syntax", True)
         self.declare_parameter("verify_tripartite", True)
 

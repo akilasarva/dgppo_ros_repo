@@ -5,11 +5,14 @@
   <!-- Your existing lidar clustering node — publishes /current_cluster -->
   <!-- <node pkg="your_pkg" type="cluster_node.py" name="cluster_node" output="screen" /> -->
 
-  <!-- Brain controller -->
+  <!-- Brain controller. Idles in WAITING_FOR_PLAN until nl_planner ships a
+       plan via /brain/incoming_plan + /brain/load_plan. brain/plan.json is
+       no longer read on startup — it's now written each time /brain/load_plan
+       succeeds, as a debug snapshot of the active plan. -->
   <node pkg="your_pkg" type="brain_controller.py" name="brain_controller" output="screen">
-    <param name="plan_path"           value="$(find your_pkg)/plan.json" />
     <param name="image_topic"         value="/camera/image_raw" />
     <param name="vlm_check_interval"  value="2.0" />
-    <param name="vlm_model"           value="gpt-4o-mini" />
+    <param name="vlm_model"           value="gpt-4o" />
+    <param name="plan_snapshot_path"  value="$(find your_pkg)/../plan.json" />
   </node>
 </launch>

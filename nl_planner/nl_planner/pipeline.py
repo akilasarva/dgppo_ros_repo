@@ -20,6 +20,7 @@ from .schemas import (
     SyntaxVerdict,
     TripartiteVerdict,
 )
+from .stl_syntax import quick_syntax_check
 from .taxonomy import ClusterTaxonomy, validate_plan_modes
 
 
@@ -109,7 +110,7 @@ def generate_plan(
     taxonomy: ClusterTaxonomy,
     agents=None,
     model_id: str | None = None,
-    max_attempts: int = 3,
+    max_attempts: int = 5,
     verify_syntax: bool = True,
     verify_tripartite: bool = True,
 ) -> PipelineResult:
@@ -166,21 +167,26 @@ def generate_plan(
             continue
 
         if verify_syntax:
-            try:
-                syn_result = agents.syntax_verifier.run_sync(
-                    f"Input formula:\n{gen.stl_formula}"
+            # Deterministic regex-based syntax check. Catches every failure
+            # mode we observed when this was an LLM agent (unbalanced parens,
+            # mode-names leaking into predicate args, invented \Phi_{...}
+            # macros, ASCII operators, malformed \text{...} wrappers). It's
+            # ~1000x faster than an LLM round-trip and cannot hallucinate.
+            # The previous LLM-based syntax verifier proved unreliable — it
+            # was rejecting valid formulas like `Detect(Wall)` (a single-word
+            # CamelCase identifier) — so we no longer use it for syntax. The
+            # tripartite verifier still uses an LLM (it's a semantic check,
+            # not a syntactic one).
+            quick_ok, quick_err = quick_syntax_check(gen.stl_formula)
+            attempt.syntax = SyntaxVerdict(ok=quick_ok, error=quick_err)
+            if not quick_ok:
+                attempt.failure_reason = f"syntax fail: {quick_err}"
+                attempts.append(attempt)
+                feedback = (
+                    "SYNTAX FAIL (deterministic check; the rule numbers refer "
+                    "to verify_syntax.md): "
+                    f"{quick_err}\nFix the STL formula and retry."
                 )
-                syn: SyntaxVerdict = syn_result.output  # type: ignore[attr-defined]
-            except Exception as exc:  # noqa: BLE001
-                attempt.failure_reason = f"syntax verifier exception: {exc!r}"
-                attempts.append(attempt)
-                feedback = f"SYNTAX VERIFIER EXCEPTION: {exc!s}"
-                continue
-            attempt.syntax = syn
-            if not syn.ok:
-                attempt.failure_reason = f"syntax fail: {syn.error or '(no detail)'}"
-                attempts.append(attempt)
-                feedback = f"SYNTAX FAIL: {syn.error or '(no detail provided)'}"
                 continue
 
         if verify_tripartite:

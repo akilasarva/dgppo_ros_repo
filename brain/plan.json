@@ -1,45 +1,60 @@
 {
-  "plan_name": "Hockfield Path A",
-  "description": "Navigate from road through an intersection and stop at trash can landmark",
+  "plan_name": "Right turn at stop sign",
+  "description": "Drive along the road until a stop sign, then turn right through the intersection.",
   "cluster_labels": {
-    "0": "On Road",
-    "1": "Enter Intersection",
-    "2": "In Intersection",
-    "3": "Exit Intersection",
-    "4": "On Road (Destination)"
+    "5": "Road: On",
+    "6": "Road: On",
+    "8": "Road: On",
+    "9": "Road: On",
+    "10": "Road: On",
+    "11": "Road: On",
+    "12": "Road: On",
+    "7": "Intersection: Approach/Enter",
+    "0": "Intersection: In",
+    "1": "Intersection: In",
+    "2": "Intersection: In",
+    "3": "Open Space",
+    "4": "Open Space",
+    "-1": "Along Wall"
   },
   "steps": [
     {
       "step": 0,
-      "description": "On road approaching the intersection",
-      "start_cluster": 0,
-      "goal_cluster": 1,
-      "transition_cue": null,
-      "notes": "No cue needed — advance immediately on entering intersection approach"
+      "description": "Drive on road toward stop sign",
+      "start_cluster": 5,
+      "goal_cluster": 7,
+      "start_mode": "Road: On",
+      "goal_mode": "Intersection: Approach/Enter",
+      "transition_cue": "Detect(StopSign)",
+      "notes": null,
+      "branches": null
     },
     {
       "step": 1,
-      "description": "Entering the intersection",
-      "start_cluster": 1,
-      "goal_cluster": 2,
-      "transition_cue": null,
-      "notes": "No cue needed — advance immediately on entering intersection"
+      "description": "Enter intersection",
+      "start_cluster": 7,
+      "goal_cluster": 0,
+      "start_mode": "Intersection: Approach/Enter",
+      "goal_mode": "Intersection: In",
+      "transition_cue": "Detect(Inside Intersection)",
+      "notes": null,
+      "branches": null
     },
     {
       "step": 2,
-      "description": "Crossing through the intersection",
-      "start_cluster": 2,
-      "goal_cluster": 3,
-      "transition_cue": null,
-      "notes": "No cue needed — advance immediately on exiting intersection"
-    },
-    {
-      "step": 3,
-      "description": "Exiting intersection back onto road — stop at bench landmark on the right",
-      "start_cluster": 3,
-      "goal_cluster": 0,
-      "transition_cue": "a light brown bench",
-      "notes": "Stop when trash can and recycling bin landmark is confirmed by VLM"
+      "description": "Complete right turn",
+      "start_cluster": 0,
+      "goal_cluster": 5,
+      "start_mode": "Intersection: In",
+      "goal_mode": "Road: On",
+      "transition_cue": "Bearing(Right) completed",
+      "notes": null,
+      "branches": null
     }
-  ]
+  ],
+  "nl_planner": {
+    "version": 2,
+    "tree_shaped": true,
+    "environment": "livox1"
+  }
 }

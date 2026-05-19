@@ -41,6 +41,20 @@ Do a tripartite check:
 - **Y ↔ X**: Does the STL truly describe the requested physical route?
   Are termination conditions correct?
 
+## Predicate Equivalence (do NOT flag style-only differences)
+
+These predicate forms refer to the **same** thing and must be treated as
+equivalent when checking Z↔Y alignment:
+
+- `Detect(StopSign)`  ≡  `\text{Detect}(StopSign)`  ≡  `Detect(\text{StopSign})`  ≡  `\text{Detect}(\text{StopSign})`
+- `\text{Detect}(\text{Stop Sign})`  ≡  `Detect(StopSign)`  (space inside `\text{}` is presentational only)
+- Same rule applies to `Bearing(...)`.
+
+If a JSON `transition_cue` is `Detect(StopSign)` and the STL contains
+`\text{Detect}(\text{Stop Sign})`, mark them aligned. Only flag a Z↔Y
+mismatch when the **landmark/direction itself** differs (e.g. JSON says
+`Detect(StopSign)` but STL says `Detect(Bridge)`).
+
 # Output
 
 The framework injects a JSON schema with four fields:

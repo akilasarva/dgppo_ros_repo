@@ -7,7 +7,7 @@ console script::
     nl_planner \\
       --mission "drive forward and turn right at the stop sign" \\
       --taxonomy nl_planner/config/cluster_map.livox1.yaml \\
-      --model openai:gpt-4o-mini \\
+      --model openai:gpt-4o \\
       --out plan.json
 
 Writes the *tree-shaped* NavPlan JSON to ``--out`` (and stdout if no ``--out``),

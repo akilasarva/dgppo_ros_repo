@@ -33,7 +33,7 @@ class VLMClient:
     def __init__(
         self,
         *,
-        model: str = "gpt-4o-mini",
+        model: str = "gpt-4o",
         api_key: str | None = None,
     ):
         try:

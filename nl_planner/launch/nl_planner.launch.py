@@ -1,17 +1,20 @@
-"""Launch the nl_planner planner + executor nodes together.
+"""Launch the nl_planner planner + executor + mission-bridge nodes together.
 
 Usage:
     ros2 launch nl_planner nl_planner.launch.py \\
       taxonomy:=$(ros2 pkg prefix nl_planner)/share/nl_planner/config/cluster_map.livox1.yaml
 
 Required launch args:
-    taxonomy   absolute path to cluster_map.<env>.yaml
+    taxonomy           absolute path to cluster_map.<env>.yaml
 
 Optional launch args:
-    model              pydantic-ai model id (default openai:gpt-4o-mini)
-    vlm_model          OpenAI vision model for branch decisions (default gpt-4o-mini)
-    image_topic        camera topic the executor caches for VLM calls
+    model              pydantic-ai model id (default openai:gpt-4o)
     max_attempts       generator retry cap (default 3)
+
+Note: ``executor_node`` is now a thin shipper that converts the NavPlan tree
+to brain-format JSON and ships it to ``/brain/incoming_plan``. The VLM branch
+decisions happen inside ``brain_controller`` (v2 tree-aware), so the executor
+no longer needs ``vlm_model`` or ``image_topic`` params.
 """
 
 from launch import LaunchDescription
@@ -23,8 +26,6 @@ from launch_ros.actions import Node
 def generate_launch_description() -> LaunchDescription:
     taxonomy = LaunchConfiguration("taxonomy")
     model = LaunchConfiguration("model")
-    vlm_model = LaunchConfiguration("vlm_model")
-    image_topic = LaunchConfiguration("image_topic")
     max_attempts = LaunchConfiguration("max_attempts")
 
     return LaunchDescription([
@@ -34,18 +35,8 @@ def generate_launch_description() -> LaunchDescription:
         ),
         DeclareLaunchArgument(
             "model",
-            default_value="openai:gpt-4o-mini",
+            default_value="openai:gpt-4o",
             description="pydantic-ai provider:model id for the LLM agents.",
-        ),
-        DeclareLaunchArgument(
-            "vlm_model",
-            default_value="gpt-4o-mini",
-            description="OpenAI vision model used at branch decision points.",
-        ),
-        DeclareLaunchArgument(
-            "image_topic",
-            default_value="/hamilton/hamilton_zed/rgb/image_rect_color",
-            description="Camera topic the executor caches for VLM calls.",
         ),
         DeclareLaunchArgument(
             "max_attempts",
@@ -73,9 +64,13 @@ def generate_launch_description() -> LaunchDescription:
             output="screen",
             parameters=[{
                 "taxonomy_path": taxonomy,
-                "vlm_model": vlm_model,
-                "image_topic": image_topic,
                 "brain_load_plan_timeout_s": 5.0,
             }],
+        ),
+        Node(
+            package="nl_planner",
+            executable="mission_bridge",
+            name="nl_planner_mission_bridge",
+            output="screen",
         ),
     ])

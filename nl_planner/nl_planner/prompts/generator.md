@@ -50,6 +50,102 @@ that watches the camera, so any concrete visual landmark works.
 - `Detect(object)` — e.g. `Detect(TrafficLight)`, `Detect(StopSign)`, `Detect(Bridge)`
 - `Bearing(direction)` — e.g. `Bearing(Left)`, `Bearing(Right)`, `Bearing(Straight)`
 
+# STL Syntax Cheatsheet (the verifier enforces these EXACTLY)
+
+The `stl_formula` field is checked by a separate strict syntax verifier. Stay
+inside the grammar below — every deviation triggers a retry and burns budget.
+
+- **Macros**: the macro allow-list is CLOSED. Only these six are accepted:
+   `\Phi_{Int_Pass}`, `\Phi_{Int_Turn}`, `\Phi_{Bridge}`, `\Phi_{Build_Past}`,
+   `\Phi_{Road}`, `\Phi_{LongRoad}`. The `_` may be written as `\_`.
+   **DO NOT invent new macros** like `\Phi_{GoForward}`, `\Phi_{TurnRight}`,
+   `\Phi_{OpenSpace}`. If the route does not match any of the six above,
+   describe it with `Detect(...)` / `Bearing(...)` predicates and the bare
+   topological progression in the JSON `steps` list instead.
+
+- **Predicates**: `Detect(<arg>)` or `Bearing(<arg>)`. The predicate name may
+   optionally be wrapped in `\text{...}`, i.e. `\text{Detect}(...)` is the same
+   as `Detect(...)`. The argument `<arg>` MUST be one of these two forms:
+   - **Form A — bare CamelCase**: letters/digits only, no spaces, no
+     punctuation: `StopSign`, `IntersectingRoad`, `EndOfBridge`, `Right`,
+     `Left`. Pick this form when you can express the landmark as a single
+     CamelCase token.
+   - **Form B — `\text{<phrase>}`**: use this when the landmark naturally
+     reads as several words: `\text{Stop Sign}`, `\text{Intersecting Road}`,
+     `\text{End of Bridge}`. Do NOT put LaTeX commands (`\Phi_{...}`,
+     `\mathbf{...}`) inside the `\text{...}` body.
+
+   When in doubt, **prefer Form A (bare CamelCase)** — it is the simplest
+   shape and the verifier accepts it unconditionally. Reserve `\text{...}` for
+   genuinely multi-word phrases.
+
+- **Temporal operators**: ONLY `\mathbf{U}` and `\mathbf{F}`. Bare `U`, `F`,
+   `G`, `X` as standalone tokens are syntax errors.
+
+- **Boolean operators**: ONLY `\land`, `\lor`, `\lnot`. Bare `&&`, `||`, `!`
+   are syntax errors.
+
+- **Wrapping**: the whole formula may optionally be inside `$$ ... $$`.
+
+## Worked Examples
+
+Two equivalent formulas for "drive on the road until you detect a stop sign,
+then turn right through the intersection":
+
+```
+Detect(StopSign) \land \mathbf{F}\Phi_{Int_Turn}                          # Form A
+\text{Detect}(\text{Stop Sign}) \land \mathbf{F}\Phi_{Int\_Turn}          # Form B + escaped underscore
+```
+
+Both pass the verifier. Pick one and stay consistent within one formula.
+
+## Predicate Args vs Mode Names — Different Vocabularies
+
+Be careful: the **mode names** in your JSON (`"Open Space"`, `"Intersection:
+Approach/Enter"`, `"Along Wall"`, `"Road: On"`) may contain spaces, colons,
+and slashes. They are the SEMANTIC graph nodes and ONLY appear in
+`start_mode` / `goal_mode` fields of `PlanStep`. They **NEVER** appear inside
+`Detect(...)` or `Bearing(...)` arguments.
+
+When you need to refer to such a place in an STL predicate, you have two
+options:
+
+- Collapse the name into a single CamelCase token and use Form A:
+  `Detect(OpenSpace)`, `Detect(IntersectionEntrance)`, `Detect(WallNearby)`.
+- Or wrap a readable phrase in `\text{...}` (Form B):
+  `Detect(\text{Open Space})`, `Detect(\text{Intersection Approach})`,
+  `\text{Detect}(\text{Wall Nearby})`.
+
+What you must NEVER do:
+
+```
+Detect(Open Space)              # WRONG — bare argument with a space
+Detect(Intersection: In)        # WRONG — bare argument with a colon
+Detect(Open-Space)              # WRONG — bare argument with punctuation
+Detect("Open Space")            # WRONG — quotes are not allowed
+```
+
+## Common Generator Mistakes to AVOID
+
+1. **Inventing macros.** Only the six `\Phi_{...}` macros listed above are
+   accepted. If your route doesn't fit one of them, do not invent
+   `\Phi_{GoForward}` / `\Phi_{TurnRight}` / `\Phi_{OpenSpace}` — describe the
+   step with `Detect(...)` predicates plus the JSON `steps` topological
+   progression. The STL formula is for *what to perceive and when*; the JSON
+   plan is for *which mode to be in*.
+
+2. **Leaking mode names into predicate args.** If you find yourself writing
+   `Detect(Open Space)` or `Detect(Along Wall)`, stop. Either rewrite as
+   `Detect(OpenSpace)` / `Detect(AlongWall)` (Form A) or as
+   `\text{Detect}(\text{Open Space})` (Form B).
+
+3. **Mixing styles within one predicate.** Pick Form A or Form B for the
+   argument; do not write `Detect(Open\ Space)` or `Detect("OpenSpace")`.
+
+4. **Using ASCII boolean/temporal operators.** `&&`, `||`, `!`, bare `U`,
+   bare `F`, bare `G` are all syntax errors. Always write `\land`, `\lor`,
+   `\lnot`, `\mathbf{U}`, `\mathbf{F}`.
+
 # Constraints
 
 1. **NO METRIC VALUES.** No meters / feet / seconds. Use `Detect` / `Bearing`.

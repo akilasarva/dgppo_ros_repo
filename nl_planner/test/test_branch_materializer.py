@@ -8,6 +8,7 @@ import pytest
 
 from nl_planner.branch_materializer import (
     materialize_segment,
+    to_brain_tree,
     walk_all_segments,
 )
 from nl_planner.schemas import Branch, NavPlan, PlanStep
@@ -138,3 +139,81 @@ def test_path_past_terminal_raises(taxonomy, branch_plan):
     # default branch has no further decisions
     with pytest.raises(ValueError):
         materialize_segment(branch_plan, taxonomy, path=(1, 0))
+
+
+# --------------------------------------------------------------------------- #
+# to_brain_tree                                                                #
+# --------------------------------------------------------------------------- #
+
+def test_to_brain_tree_linear(taxonomy):
+    plan = NavPlan(
+        plan_name="linear", description="d",
+        steps=[
+            _step(0, "approach", "Road: On", "Bridge: Enter"),
+            _step(1, "cross",    "Bridge: Enter", "Bridge: On"),
+        ],
+    )
+    tree = to_brain_tree(plan, taxonomy)
+    assert tree["plan_name"] == "linear"
+    assert tree["nl_planner"]["tree_shaped"] is True
+    assert tree["nl_planner"]["version"] == 2
+    assert tree["nl_planner"]["environment"] == "testenv"
+    assert len(tree["steps"]) == 2
+    assert tree["steps"][0]["start_cluster"] == 0  # Road: On
+    assert tree["steps"][0]["goal_cluster"] == 10  # Bridge: Enter
+    assert tree["steps"][0]["start_mode"] == "Road: On"
+    assert tree["steps"][0]["branches"] is None
+    assert tree["steps"][1]["start_cluster"] == 10
+    assert tree["steps"][1]["goal_cluster"] == 11
+    # cluster_labels includes every taxonomy id, keyed as strings
+    assert tree["cluster_labels"]["0"] == "Road: On"
+    assert tree["cluster_labels"]["11"] == "Bridge: On"
+
+
+def test_to_brain_tree_preserves_branches(taxonomy, branch_plan):
+    tree = to_brain_tree(branch_plan, taxonomy)
+    # Root list keeps both linear lead + decision step
+    assert [s["description"] for s in tree["steps"]] == ["approach", "decide"]
+    decision = tree["steps"][1]
+    assert decision["start_cluster"] == 10  # Bridge: Enter
+    assert decision["goal_cluster"] == 10
+    assert decision["branches"] is not None
+    cues = [b["vlm_cue"] for b in decision["branches"]]
+    assert cues == ["bridge is blocked", "default"]
+    # The 'default' branch's sub_plan must have two linear steps with
+    # resolved cluster ids.
+    default_branch = decision["branches"][1]
+    assert default_branch["vlm_cue"] == "default"
+    sub = default_branch["sub_plan"]
+    assert [s["description"] for s in sub] == ["cross", "exit"]
+    assert sub[0]["start_cluster"] == 10  # Bridge: Enter
+    assert sub[0]["goal_cluster"]  == 11  # Bridge: On
+    assert sub[0]["branches"]      is None
+
+
+def test_to_brain_tree_round_trips_through_navigator(taxonomy, branch_plan):
+    """The output is consumable by brain.plan_navigator.PlanNavigator."""
+    import sys
+    # PlanNavigator lives in the brain package; load it without polluting
+    # the broader test session.
+    nav_path = (
+        "/home/racecar/racecar_ws/src/dgppo_ros_repo/brain/brain/"
+        "plan_navigator.py"
+    )
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("brain_plan_navigator", nav_path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    tree = to_brain_tree(branch_plan, taxonomy)
+    nav = mod.PlanNavigator(tree["steps"])
+    # Linear lead "approach"
+    assert nav.current_step["description"] == "approach"
+    nav.advance()
+    # Now at the decision step
+    assert nav.current_has_branches
+    assert nav.default_branch_idx() == 1
+    nav.descend(0)  # 'bridge is blocked'
+    assert nav.current_step["description"] == "detour"
+    nav.advance()
+    assert nav.is_complete

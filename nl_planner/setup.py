@@ -43,6 +43,7 @@ setup(
             'seed_taxonomy    = nl_planner.bootstrap.seed_taxonomy:main',
             'planner_node     = nl_planner.nodes.planner_node:main',
             'executor_node    = nl_planner.nodes.executor_node:main',
+            'mission_bridge   = nl_planner.nodes.mission_bridge:main',
         ],
     },
 )

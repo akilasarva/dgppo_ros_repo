@@ -5,7 +5,7 @@ module does NOT require ``pydantic_ai`` to be installed (handy for unit
 tests of pure-python pieces like schemas.py / taxonomy.py).
 
 Provider/model is passed in as a string in pydantic-ai's
-``provider:model_id`` syntax, e.g. ``"openai:gpt-4o-mini"``. The default is
+``provider:model_id`` syntax, e.g. ``"openai:gpt-4o"``. The default is
 read from the ROS param / env var by the caller.
 """
 
@@ -17,7 +17,12 @@ from typing import Any
 from .prompts import load_prompt
 from .schemas import GeneratorOutput, SyntaxVerdict, TripartiteVerdict
 
-DEFAULT_MODEL_ID = "openai:gpt-4o-mini"
+# Default to full gpt-4o (not -mini). gpt-4o-mini was unable to reliably
+# produce schema-valid branching plans + balanced STL syntax even with 5
+# retries and explicit feedback — we kept hitting pydantic-ai's
+# `Exceeded maximum output retries`. gpt-4o handles the JSON+STL schema in
+# 1-2 attempts and pays for itself in fewer round-trips.
+DEFAULT_MODEL_ID = "openai:gpt-4o"
 
 
 @dataclass

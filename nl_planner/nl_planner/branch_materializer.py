@@ -213,9 +213,92 @@ def attach_decision_metadata(
         }
 
 
+# --------------------------------------------------------------------------- #
+# Full-tree conversion for brain_controller v2 (tree-aware brain)              #
+# --------------------------------------------------------------------------- #
+
+def to_brain_tree(
+    plan: NavPlan,
+    taxonomy: ClusterTaxonomy,
+) -> dict[str, Any]:
+    """Convert a NavPlan tree to a brain_controller-compatible JSON dict.
+
+    Unlike :func:`materialize_segment` (which slices the tree into linear
+    chunks for the old segment-by-segment executor), this preserves the
+    FULL branching structure so the tree-aware brain_controller can walk
+    it natively and make VLM branch decisions in-process.
+
+    Output schema (each step)::
+
+        {
+            "step":           int,            # index in its containing sub_plan
+            "description":    str,
+            "start_cluster":  int,            # taxonomy.canonical_id(start_mode)
+            "goal_cluster":   int,
+            "start_mode":     str,            # kept for diagnostics
+            "goal_mode":      str,
+            "transition_cue": str | None,
+            "notes":          str | None,
+            "branches":       None | [
+                {"vlm_cue": str, "sub_plan": [<more steps in the same shape>]},
+                ...
+            ],
+        }
+
+    The top-level dict carries ``cluster_labels`` (every cluster id known
+    to the taxonomy, not only the ones referenced) and a small
+    ``nl_planner`` metadata block so consumers can tell tree-shaped plans
+    from legacy linear ones.
+    """
+    cluster_labels: dict[str, str] = {
+        str(cid): label for cid, label in taxonomy.cluster_labels().items()
+    }
+    return {
+        "plan_name":      plan.plan_name,
+        "description":    plan.description,
+        "cluster_labels": cluster_labels,
+        "steps":          _convert_steps(plan.steps, taxonomy),
+        "nl_planner": {
+            "version":      2,
+            "tree_shaped":  True,
+            "environment":  taxonomy.environment,
+        },
+    }
+
+
+def _convert_steps(
+    steps: Sequence[PlanStep],
+    taxonomy: ClusterTaxonomy,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for i, step in enumerate(steps):
+        d: dict[str, Any] = {
+            "step":           i,
+            "description":    step.description,
+            "start_cluster":  taxonomy.canonical_id(step.start_mode),
+            "goal_cluster":   taxonomy.canonical_id(step.goal_mode),
+            "start_mode":     step.start_mode,
+            "goal_mode":      step.goal_mode,
+            "transition_cue": step.transition_cue,
+            "notes":          step.notes,
+            "branches":       None,
+        }
+        if step.branches:
+            d["branches"] = [
+                {
+                    "vlm_cue":  b.vlm_cue,
+                    "sub_plan": _convert_steps(b.sub_plan, taxonomy),
+                }
+                for b in step.branches
+            ]
+        out.append(d)
+    return out
+
+
 __all__ = [
     "MaterializedSegment",
     "materialize_segment",
     "walk_all_segments",
     "attach_decision_metadata",
+    "to_brain_tree",
 ]
