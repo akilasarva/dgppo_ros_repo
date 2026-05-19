@@ -525,12 +525,19 @@ class DGPPOROSNode(Node):
         else:
             self.next_cluster_bonus_awarded = bonus_awarded_updated
 
-        # new_movement_targets[2:4] = velocity in sim space (vel = action * 0.5)
-        # Reverse sim→Spot axis mapping: v_spot_x = sim_vel_y, v_spot_y = -sim_vel_x
-        # Clamp to Spot's safe walking speed (SDK hard limit is 2.0 m/s)
+        # new_movement_targets[2:4] = sim-world-frame velocity (action * SIM_MAX_VEL).
+        # DGPPO actions are in the world frame; synchro_velocity_command takes body frame.
+        # Step 1 — sim world → vision (world) frame:
+        #   sim +Y (forward) = vision +X;  sim +X (right) = −vision +Y (left)
+        # Step 2 — vision → body frame via R(−yaw):
+        #   body_fwd  =  v_wx * cos(yaw) + v_wy * sin(yaw)
+        #   body_left = −v_wx * sin(yaw) + v_wy * cos(yaw)
+        # Step 3 — proportional-clamp to SPOT_MAX_VEL (SDK hard limit is 2.0 m/s)
         SPOT_MAX_VEL = 0.5  # m/s — conservative safe limit
-        v_x_raw = float(new_movement_targets[3]) * self.scale_2d_3d
-        v_y_raw = -float(new_movement_targets[2]) * self.scale_2d_3d
+        v_world_x =  float(new_movement_targets[3]) * self.scale_2d_3d   # sim_Y → vision +X
+        v_world_y = -float(new_movement_targets[2]) * self.scale_2d_3d   # −sim_X → vision +Y
+        v_x_raw =  v_world_x * math.cos(yaw) + v_world_y * math.sin(yaw)  # body forward
+        v_y_raw = -v_world_x * math.sin(yaw) + v_world_y * math.cos(yaw)  # body left
         max_component = max(abs(v_x_raw), abs(v_y_raw))
         scale = min(1.0, SPOT_MAX_VEL / max_component) if max_component > 0 else 1.0
         v_x_target = v_x_raw * scale
@@ -580,7 +587,7 @@ class DGPPOROSNode(Node):
             float(vel_body_fwd), float(vel_body_lat), # [4,5]  body frame vel: fwd, left (m/s)
             float(sim_pos_x),    float(sim_pos_y),    # [6,7]  DGPPO sim pos (scaled)
             float(sim_vel_x),    float(sim_vel_y),    # [8,9]  DGPPO sim vel (scaled)
-            float(v_x_target),   float(v_y_target),   # [10,11] cmd to Spot, vision frame (m/s)
+            float(v_x_target),   float(v_y_target),   # [10,11] cmd to Spot, body frame fwd/left (m/s)
             float(action_flat[0]) if len(action_flat) > 0 else 0.0,  # [12] raw policy a[0] (sim-X → right)
             float(action_flat[1]) if len(action_flat) > 1 else 0.0,  # [13] raw policy a[1] (sim-Y → fwd)
         ]
