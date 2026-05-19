@@ -32,7 +32,10 @@ from bosdyn.client.frame_helpers import (
 import time
 
 # DGPPO and LidarEnv components
-from .dgppo.dgppo.env.lidar_env.lidar_target import LidarTarget, LidarEnvState
+from .dgppo.dgppo.env.lidar_env.lidar_target import (
+    LidarTarget, LidarTargetV1, LidarTargetV2, LidarTargetV3, LidarTargetV4,
+)
+from .dgppo.dgppo.env.lidar_env.base import LidarEnvState
 from .dgppo.dgppo.env.lidar_env.base import get_terrain_id as _compute_terrain_id
 from .dgppo.dgppo.algo.dgppo import DGPPO
 from .dgppo.dgppo.algo import make_algo
@@ -54,10 +57,17 @@ class DGPPOROSNode(Node):
         self.declare_parameter('step_test_once', False)  # single step: 0→0.4 m/s, holds until disabled
         self._step_test_t0 = None  # set on first step-test tick
         self.num_clusters = 4
-        self.dt = 1.0/30
         self.twod_area_size = 1.5
 
-        model_dir = "dgppo/logs/LidarTarget/dgppo/terrain_bent_bridge"
+        _ENV_CLASSES = {
+            'LidarTarget':   LidarTarget,
+            'LidarTargetV1': LidarTargetV1,
+            'LidarTargetV2': LidarTargetV2,
+            'LidarTargetV3': LidarTargetV3,
+            'LidarTargetV4': LidarTargetV4,
+        }
+
+        model_dir = "dgppo/logs/LidarTargetV1/dgppo/terrain_bent_bridge"
         config_path = os.path.join(model_dir, "config.yaml")
         params_path = os.path.join(model_dir, "models")
 
@@ -74,11 +84,15 @@ class DGPPOROSNode(Node):
         self.n_rays_phys = 72  # TODO: verify Spot LiDAR bin count
         # Merge class defaults so all keys (including n_rays=32) are present,
         # then apply specific overrides.
-        merged_params = {**LidarTarget.PARAMS, **env_kwargs.get('params', {})}
+        env_class_name = config.get('env', 'LidarTarget')
+        env_class = _ENV_CLASSES.get(env_class_name, LidarTarget)
+        self.get_logger().info(f"Using env class: {env_class_name}")
+
+        merged_params = {**env_class.PARAMS, **env_kwargs.get('params', {})}
         merged_params['top_k_rays'] = 8
         merged_params['comm_radius'] = 0.5
 
-        self.env_instance = LidarTarget(
+        self.env_instance = env_class(
             num_agents=config.get('num_agents'),
             params=merged_params,
             **{k: v for k, v in env_kwargs.items() if k != 'params'}
@@ -155,7 +169,7 @@ class DGPPOROSNode(Node):
 
         self._take_lease_srv = self.create_service(Trigger, '/dgppo_take_lease', self._take_lease_callback)
 
-        self.timer = self.create_timer(0.02, self.control_loop)
+        self.timer = self.create_timer(self.env_instance.dt, self.control_loop)
 
         import datetime
         _log_dir = os.path.join(os.path.dirname(__file__), 'debug_logs')
@@ -507,8 +521,12 @@ class DGPPOROSNode(Node):
         # Reverse sim→Spot axis mapping: v_spot_x = sim_vel_y, v_spot_y = -sim_vel_x
         # Clamp to Spot's safe walking speed (SDK hard limit is 2.0 m/s)
         SPOT_MAX_VEL = 0.5  # m/s — conservative safe limit
-        v_x_target = float(np.clip(float(new_movement_targets[3]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
-        v_y_target = float(np.clip(-float(new_movement_targets[2]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
+        v_x_raw = float(new_movement_targets[3]) * self.scale_2d_3d
+        v_y_raw = -float(new_movement_targets[2]) * self.scale_2d_3d
+        max_component = max(abs(v_x_raw), abs(v_y_raw))
+        scale = min(1.0, SPOT_MAX_VEL / max_component) if max_component > 0 else 1.0
+        v_x_target = v_x_raw * scale
+        v_y_target = v_y_raw * scale
 
         # ── Step-test overrides ───────────────────────────────────────────────
         STEP_VX = 0.4  # m/s forward — safe walking speed for both modes
@@ -581,19 +599,10 @@ class DGPPOROSNode(Node):
                 throttle_duration_sec=0.5)
 
     def agent_step_euler(self, agent_states: AgentState, action: Action) -> AgentState:
-        """Velocity control: action in [-1,1] is directly the velocity command (scaled to ±0.5)."""
-        assert action.shape == (self.env_instance.num_agents, self.env_instance.action_dim)
-        assert agent_states.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
-        vel = action * 0.5                                        # action [-1,1] → vel [-0.5, 0.5]
-        next_pos = agent_states[:, :2] + vel * self.dt            # first-order integration
-        n_state_agent_new = jnp.concatenate([next_pos, vel], axis=1)
-        assert n_state_agent_new.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
-        return self.clip_state(n_state_agent_new)
+        return self.env_instance.agent_step_euler(agent_states, action)
 
     def state_lim(self) -> Tuple[State, State]:
-        lower_lim = jnp.array([0., 0., -0.5, -0.5])
-        upper_lim = jnp.array([self.twod_area_size, self.twod_area_size, 0.5, 0.5])
-        return lower_lim, upper_lim
+        return self.env_instance.state_lim()
 
     def action_lim(self) -> Tuple[Action, Action]:
         lower_lim = jnp.ones(2) * -1.0
