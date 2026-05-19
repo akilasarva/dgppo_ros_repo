@@ -103,9 +103,11 @@ class FilterConfig:
         self.z2_lower  = 0.0
         self.max_range = 8.0
         self.min_range = 0.5
-        self.use_intensity = False
-        self.int_lower = 0.0
-        self.int_upper = 255.0
+        self.use_intensity  = False
+        self.int_lower      = 0.0
+        self.int_upper      = 255.0
+        self.density_radius = 0.30
+        self.min_neighbors  = 4
         self._load()
 
     def _load(self):
@@ -136,6 +138,7 @@ class FilterConfig:
                 max_range=self.max_range, min_range=self.min_range,
                 use_intensity=self.use_intensity,
                 int_lower=self.int_lower, int_upper=self.int_upper,
+                density_radius=self.density_radius, min_neighbors=self.min_neighbors,
             )
 
     def set(self, **kw):
@@ -341,13 +344,15 @@ class DebugSubscriber(Node):
     def _pub_cfg(self):
         cfg = self.state.filter_cfg.get()
         m = Float32MultiArray()
-        # Layout: [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range, use_intensity, int_lower, int_upper]
+        # Layout: [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range,
+        #          use_intensity, int_lower, int_upper, density_radius, min_neighbors]
         m.data = [
             cfg['z_upper'], cfg['z_lower'],
             cfg['z2_upper'], cfg['z2_lower'],
             cfg['max_range'], cfg['min_range'],
             float(cfg['use_intensity']),
             cfg['int_lower'], cfg['int_upper'],
+            cfg['density_radius'], float(cfg['min_neighbors']),
         ]
         self._cfg_pub.publish(m)
 
@@ -398,6 +403,22 @@ def _bearing_for_step(snap):
         step = seq[ps]
         return step, bm.get(f"{step['start']}-{step['next']}")
     return None, None
+
+
+def _apply_density_filter(xy, neighbor_radius=0.30, min_neighbors=4):
+    """Return boolean mask (len N) — True where point has >= min_neighbors within radius.
+
+    Isolated returns (noise/rain/multipath) have 0 neighbours; solid surfaces cluster densely.
+    Requires scipy; if unavailable all points are accepted (no filtering).
+    """
+    if len(xy) <= min_neighbors:
+        return np.zeros(len(xy), dtype=bool)
+    try:
+        from scipy.spatial import cKDTree
+        counts = cKDTree(xy).query_ball_point(xy, r=neighbor_radius, return_length=True)
+        return (counts - 1) >= min_neighbors  # -1 excludes self
+    except ImportError:
+        return np.ones(len(xy), dtype=bool)
 
 
 def _apply_slice_filter(raw_cloud, cfg):
@@ -457,7 +478,6 @@ def _detect_step_metrics(t_arr, cmd_vx, rep_vx):
         return None, None
 
     t_step = t_arr[step_idx]
-    target = float(np.max(cmd_vx[step_idx:]))  # commanded level after step
 
     # Pure delay: first rep sample above REP_THR after the step edge
     delay_ms = None
@@ -466,14 +486,18 @@ def _detect_step_metrics(t_arr, cmd_vx, rep_vx):
             delay_ms = (t_arr[i] - t_step) * 1000.0
             break
 
-    # Rise time: step edge → rep reaches 90 % of target
+    # Rise time: step edge → rep reaches 90 % of its own actual peak
+    # (use reported peak, not commanded, because Spot has steady-state error)
     rise_ms = None
-    if target > 0.1:
-        target_90 = target * 0.9
-        for i in range(step_idx, len(rep_vx)):
-            if rep_vx[i] >= target_90:
-                rise_ms = (t_arr[i] - t_step) * 1000.0
-                break
+    rep_after = rep_vx[step_idx:]
+    if len(rep_after) > 3:
+        actual_peak = float(np.max(rep_after))
+        if actual_peak > 0.05:
+            t90 = actual_peak * 0.9
+            for i in range(step_idx, len(rep_vx)):
+                if rep_vx[i] >= t90:
+                    rise_ms = (t_arr[i] - t_step) * 1000.0
+                    break
 
     return delay_ms, rise_ms
 
@@ -496,19 +520,21 @@ def _detect_cycle_metrics(t_arr, cmd_vx, rep_vx):
                 break
         if end_idx - step_idx < 5:
             continue
-        target = float(np.max(cmd_vx[step_idx:end_idx]))
         delay_ms = None
         for i in range(step_idx, end_idx):
             if rep_vx[i] > REP_THR:
                 delay_ms = (t_arr[i] - t_step) * 1000.0
                 break
         rise_ms = None
-        if target > 0.1:
-            t90 = target * 0.9
-            for i in range(step_idx, end_idx):
-                if rep_vx[i] >= t90:
-                    rise_ms = (t_arr[i] - t_step) * 1000.0
-                    break
+        rep_window = rep_vx[step_idx:end_idx]
+        if len(rep_window) > 3:
+            actual_peak = float(np.max(rep_window))
+            if actual_peak > 0.05:
+                t90 = actual_peak * 0.9
+                for i in range(step_idx, end_idx):
+                    if rep_vx[i] >= t90:
+                        rise_ms = (t_arr[i] - t_step) * 1000.0
+                        break
         if delay_ms is not None:
             results.append((float(t_step), float(delay_ms),
                             float(rise_ms) if rise_ms is not None else None))
@@ -527,7 +553,8 @@ def _style_3d(ax3d):
     ax3d.yaxis.label.set_color(C_DIM); ax3d.yaxis.label.set_fontsize(7)
     ax3d.zaxis.label.set_color(C_DIM); ax3d.zaxis.label.set_fontsize(7)
     ax3d.set_xlabel('X'); ax3d.set_ylabel('Y'); ax3d.set_zlabel('Z')
-    ax3d.set_title('Point Cloud 3D · yellow = z slice', color=C_TEXT, fontsize=8)
+    ax3d.set_title('Point Cloud 3D · slice: yellow=structure  red=noise (density filter)',
+                   color=C_TEXT, fontsize=8)
     ax3d.view_init(elev=20, azim=-60)
 
 def _build_figure():
@@ -561,6 +588,7 @@ def _build_figure():
         mpatches.Patch(color='#555566',       label='raw cloud (all XY)'),
         mpatches.Patch(color=C_CLOUD_SLICE_Z, label='Z-height slice  → clustering node'),
         mpatches.Patch(color=C_CLOUD_SLICE_I, label='Intensity slice (visual only)'),
+        mpatches.Patch(color='#ff4444',       label='slice: density-filtered noise'),
         mpatches.Patch(color=C_LIDAR,         label=f'processed ranges ({NUM_RANGES} bins)'),
         mpatches.Patch(color=C_TOPK,          label=f'top-{TOP_K} closest → policy input'),
         mpatches.Patch(color=C_ACTION,        label='action direction (unit vec)'),
@@ -729,6 +757,9 @@ def run_desktop(state: DebugState):
                            arrowprops=dict(arrowstyle='->', color=color,
                                            lw=lw, mutation_scale=28, alpha=alpha))
 
+    _xcorr_ema = [None, None]   # [vx_ema, vy_ema] — smoothed xcorr lag
+    _XCORR_ALPHA = 0.2          # EMA weight for each new sample
+
     def update(_frame):
         snap = state.snapshot()
         _clear()
@@ -761,14 +792,37 @@ def run_desktop(state: DebugState):
                                              color=C_CLOUD_ALL, zorder=1,
                                              linewidths=0, alpha=0.7))
             if slice_xy is not None and len(slice_xy):
-                stride = max(1, len(slice_xy) // 800)
-                d = slice_xy[::stride]
-                H['lidar'].append(ax.scatter(d[:, 0], d[:, 1], s=4,
-                                             color=slice_color, zorder=2,
-                                             linewidths=0, alpha=0.85))
+                pass_mask  = _apply_density_filter(slice_xy,
+                                                   cfg['density_radius'],
+                                                   cfg['min_neighbors'])
+                for pts, color, alpha in [
+                    (slice_xy[~pass_mask], '#ff4444', 0.70),   # noise — red
+                    (slice_xy[ pass_mask], slice_color, 0.85), # structure — slice color
+                ]:
+                    if len(pts):
+                        stride = max(1, len(pts) // 800)
+                        d = pts[::stride]
+                        H['lidar'].append(ax.scatter(d[:, 0], d[:, 1], s=4,
+                                                     color=color, zorder=2,
+                                                     linewidths=0, alpha=alpha))
 
         # ── 3D point cloud with z-slice planes — world-frame R(ψ) applied ──
+        # Slice points are split by spatial density filter:
+        #   slice color = structure (density-pass)   red = noise (density-fail)
         if ax3d is not None and raw_cloud is not None and len(raw_cloud) > 0:
+            # Classify density pass/fail on the full (pre-stride) cloud so that
+            # neighbour counts aren't artificially depleted by striding.
+            z_all       = raw_cloud[:, 2]
+            in_band_all = (z_all >= cfg['z_lower']) & (z_all <= cfg['z_upper'])
+            density_pass = np.zeros(len(raw_cloud), dtype=bool)
+            if np.any(in_band_all):
+                xy_in        = raw_cloud[in_band_all, :2]
+                pass_local   = _apply_density_filter(xy_in,
+                                                     cfg['density_radius'],
+                                                     cfg['min_neighbors'])
+                density_pass[np.where(in_band_all)[0][pass_local]] = True
+            density_fail = in_band_all & ~density_pass
+
             stride3 = max(1, len(raw_cloud) // 800)
             pts3    = raw_cloud[::stride3]
             x3_raw, y3_raw, z3 = pts3[:, 0], pts3[:, 1], pts3[:, 2]
@@ -776,16 +830,20 @@ def run_desktop(state: DebugState):
             x3 = y3_raw * cos_ψ - x3_raw * sin_ψ  # world right
             y3 = y3_raw * sin_ψ + x3_raw * cos_ψ  # world fwd
 
-            in_band  = (z3 >= cfg['z_lower']) & (z3 <= cfg['z_upper'])
-            out_band = ~in_band
+            out_band3  = ~in_band_all[::stride3]
+            in_pass3   = density_pass[::stride3]
+            in_fail3   = density_fail[::stride3]
 
-            if np.any(out_band):
-                ax3d.scatter(x3[out_band], y3[out_band], z3[out_band],
+            sc = C_CLOUD_SLICE_I if cfg['use_intensity'] else C_CLOUD_SLICE_Z
+            if np.any(out_band3):
+                ax3d.scatter(x3[out_band3], y3[out_band3], z3[out_band3],
                              s=1, c='#2a2a3a', alpha=0.35, linewidths=0, depthshade=False)
-            if np.any(in_band):
-                sc = C_CLOUD_SLICE_I if cfg['use_intensity'] else C_CLOUD_SLICE_Z
-                ax3d.scatter(x3[in_band], y3[in_band], z3[in_band],
+            if np.any(in_pass3):
+                ax3d.scatter(x3[in_pass3], y3[in_pass3], z3[in_pass3],
                              s=6, c=sc, alpha=0.9, linewidths=0, depthshade=False)
+            if np.any(in_fail3):
+                ax3d.scatter(x3[in_fail3], y3[in_fail3], z3[in_fail3],
+                             s=6, c='#ff4444', alpha=0.85, linewidths=0, depthshade=False)
 
             # Semi-transparent planes marking z_lower and z_upper
             lim3 = cfg['max_range']
@@ -879,8 +937,16 @@ def run_desktop(state: DebugState):
         rep_vx  = np.array(snap['rep_vx_hist']) if has_vel else np.array([])
         cmd_vy  = np.array(snap['cmd_vy_hist']) if has_vel else np.array([])
         rep_vy  = np.array(snap['rep_vy_hist']) if has_vel else np.array([])
-        lag_vx   = _estimate_lag_ms(t_arr, cmd_vx, rep_vx) if has_vel else None
-        lag_vy   = _estimate_lag_ms(t_arr, cmd_vy, rep_vy) if has_vel else None
+        raw_vx = _estimate_lag_ms(t_arr, cmd_vx, rep_vx) if has_vel else None
+        raw_vy = _estimate_lag_ms(t_arr, cmd_vy, rep_vy) if has_vel else None
+        if raw_vx is not None:
+            _xcorr_ema[0] = raw_vx if _xcorr_ema[0] is None \
+                            else (1 - _XCORR_ALPHA) * _xcorr_ema[0] + _XCORR_ALPHA * raw_vx
+        if raw_vy is not None:
+            _xcorr_ema[1] = raw_vy if _xcorr_ema[1] is None \
+                            else (1 - _XCORR_ALPHA) * _xcorr_ema[1] + _XCORR_ALPHA * raw_vy
+        lag_vx = _xcorr_ema[0]
+        lag_vy = _xcorr_ema[1]
         delay_ms = snap.get('step_delay_ms')
         rise_ms  = snap.get('step_rise_ms')
 
@@ -1268,6 +1334,8 @@ function toggleTheme(){
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
 const vcv=document.getElementById('vcv'), vctx=vcv.getContext('2d');
 
+let _xcorrEma={vx:null,vy:null};
+const _XCORR_ALPHA=0.2;
 function _arrMean(a){return a.reduce((s,v)=>s+v,0)/a.length;}
 function _arrStd(a){const m=_arrMean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/a.length);}
 function _xcorrLagMs(times,cmd,rep){
@@ -1286,7 +1354,7 @@ function _xcorrLagMs(times,cmd,rep){
   return bestLag*dt*1000;
 }
 
-function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title){
+function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title,lagOverride=undefined){
   ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
   ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.7;ctx2.strokeRect(x0,y0,w,h);
   const pad={l:34,r:6,t:16,b:14};
@@ -1328,8 +1396,8 @@ function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title){
   ctx2.font='8px monospace';ctx2.textAlign='left';
   ctx2.fillStyle='#ff4466';ctx2.fillText('cmd', x0+pad.l+2,y0+pad.t+10);
   ctx2.fillStyle='#44aaff';ctx2.fillText('rep', x0+pad.l+28,y0+pad.t+10);
-  // lag estimate
-  const lag=_xcorrLagMs(times,cmdArr,repArr);
+  // lag estimate — use smoothed value if provided
+  const lag=lagOverride!==undefined?lagOverride:_xcorrLagMs(times,cmdArr,repArr);
   ctx2.textAlign='center';ctx2.font='9px monospace';
   if(lag!==null){
     const c=lag<150?'#00cc44':lag<400?'#ffaa00':'#ff4444';
@@ -1393,8 +1461,8 @@ function drawVelChart(d){
   vctx.fillStyle=C.bg;vctx.fillRect(0,0,W,H);
   const gap=4,third=Math.floor((W-gap*2)/3);
   const times=d.vel_times||[];
-  drawMiniChart(vctx,0,0,third,H,times,d.cmd_vx_hist||[],d.rep_vx_hist||[],'vx (vision frame)');
-  drawMiniChart(vctx,third+gap,0,third,H,times,d.cmd_vy_hist||[],d.rep_vy_hist||[],'vy (vision frame)');
+  drawMiniChart(vctx,0,0,third,H,times,d.cmd_vx_hist||[],d.rep_vx_hist||[],'vx (vision frame)',_xcorrEma.vx);
+  drawMiniChart(vctx,third+gap,0,third,H,times,d.cmd_vy_hist||[],d.rep_vy_hist||[],'vy (vision frame)',_xcorrEma.vy);
   drawCycleChart(vctx,(third+gap)*2,0,W-(third+gap)*2,H,d.cycle_metrics||[]);
 }
 
@@ -1691,8 +1759,10 @@ function panel(d){
   }
   const vt=d.vel_times||[],cvxH=d.cmd_vx_hist||[],rvxH=d.rep_vx_hist||[];
   const cvyH=d.cmd_vy_hist||[],rvyH=d.rep_vy_hist||[];
-  function showLag(elId,cmd,rep){
-    const lag=_xcorrLagMs(vt,cmd,rep);
+  function showLag(elId,cmd,rep,eKey){
+    const raw=_xcorrLagMs(vt,cmd,rep);
+    if(raw!==null) _xcorrEma[eKey]=_xcorrEma[eKey]===null?raw:(1-_XCORR_ALPHA)*_xcorrEma[eKey]+_XCORR_ALPHA*raw;
+    const lag=_xcorrEma[eKey];
     const el=document.getElementById(elId);
     if(!el)return;
     if(lag!==null){
@@ -1700,8 +1770,8 @@ function panel(d){
       el.textContent=lag.toFixed(0)+' ms';el.style.color=c;
     }else{el.textContent='low signal';el.style.color='#8b949e';}
   }
-  showLag('i-lgvx',cvxH,rvxH);
-  showLag('i-lgvy',cvyH,rvyH);
+  showLag('i-lgvx',cvxH,rvxH,'vx');
+  showLag('i-lgvy',cvyH,rvyH,'vy');
   function showStep(elId,ms,lo,hi){
     const el=document.getElementById(elId);if(!el)return;
     if(ms!=null){

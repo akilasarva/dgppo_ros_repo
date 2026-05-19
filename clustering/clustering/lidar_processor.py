@@ -1,5 +1,10 @@
 # Create a new file, e.g., 'lidar_processor.py'
 import numpy as np
+try:
+    from scipy.spatial import cKDTree as _cKDTree
+    _HAS_SCIPY = True
+except ImportError:
+    _HAS_SCIPY = False
 
 # def get_ranges_from_points(points, config, max_range = 24):
 #     # This is the unified function for both training and inference
@@ -66,6 +71,20 @@ def get_ranges_from_points(points, config):
     # Filter points by radial range
     radial_mask = (distances >= config['min_lidar_range']) & (distances <= config['max_lidar_range'])
     points_filtered = points_z_filtered[radial_mask]
+
+    if points_filtered.size == 0:
+        return np.full(config['num_ranges'], config['max_lidar_range'])
+
+    # ── Spatial density filter ────────────────────────────────────────────────
+    # Reject isolated points (noise/rain/multipath) that have fewer than
+    # min_neighbors other points within density_radius metres.  Solid structures
+    # always return dense clusters; single bad returns are spatially isolated.
+    density_radius = config.get('density_radius', 0.30)
+    min_neighbors  = int(config.get('min_neighbors', 4))
+    if _HAS_SCIPY and density_radius > 0 and min_neighbors > 0 and len(points_filtered) > min_neighbors:
+        counts = _cKDTree(points_filtered[:, :2]).query_ball_point(
+            points_filtered[:, :2], r=density_radius, return_length=True)
+        points_filtered = points_filtered[(counts - 1) >= min_neighbors]
 
     if points_filtered.size == 0:
         return np.full(config['num_ranges'], config['max_lidar_range'])

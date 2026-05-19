@@ -105,6 +105,8 @@ class LiveClusterInferenceNode(Node):
             "use_intensity": False,
             "int_lower": 0.0,
             "int_upper": 255.0,
+            "density_radius": 0.30,
+            "min_neighbors": 4,
         }
         
         path_prefix = ""
@@ -240,6 +242,9 @@ class LiveClusterInferenceNode(Node):
         if len(msg.data) >= 9:
             self.config['int_lower'] = float(msg.data[7])
             self.config['int_upper'] = float(msg.data[8])
+        if len(msg.data) >= 11:
+            self.config['density_radius'] = float(msg.data[9])
+            self.config['min_neighbors']  = int(msg.data[10])
         self.get_logger().info(
             f"Filter updated: mode={'intensity' if self.config['use_intensity'] else 'z-height'}  "
             f"z=[{msg.data[1]:.2f},{msg.data[0]:.2f}]  "
