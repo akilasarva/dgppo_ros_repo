@@ -6,6 +6,7 @@ import jax
 import yaml
 import os
 import numpy as np
+import threading
 from rclpy.qos import qos_profile_sensor_data
 import json
 import math
@@ -31,7 +32,10 @@ from bosdyn.client.frame_helpers import (
 import time
 
 # DGPPO and LidarEnv components
-from .dgppo.dgppo.env.lidar_env.lidar_target import LidarTarget, LidarEnvState
+from .dgppo.dgppo.env.lidar_env.lidar_target import (
+    LidarTarget, LidarTargetV1, LidarTargetV2, LidarTargetV3, LidarTargetV4,
+)
+from .dgppo.dgppo.env.lidar_env.base import LidarEnvState
 from .dgppo.dgppo.env.lidar_env.base import get_terrain_id as _compute_terrain_id
 from .dgppo.dgppo.algo.dgppo import DGPPO
 from .dgppo.dgppo.algo import make_algo
@@ -49,11 +53,24 @@ class DGPPOROSNode(Node):
         self.declare_parameter('current_cluster_id', 1)
         self.declare_parameter('angular_offset_deg', 0.0)
         self.declare_parameter('dry_run', False)  # if True: full pipeline runs but NO motor commands sent
+        self.declare_parameter('step_test', False)       # repeating square wave: 0→0.4→0 m/s, 4 s half-period
+        self.declare_parameter('step_test_once', False)  # single step: 0→0.4 m/s, holds until disabled
+        self._step_test_t0 = None  # set on first step-test tick
+        self.declare_parameter('spoof_action', False)    # bypass policy; use fixed action below
+        self.declare_parameter('spoof_action_x', 0.0)   # sim-X component [-1,1]: +X = Spot LEFT
+        self.declare_parameter('spoof_action_y', 0.0)   # sim-Y component [-1,1]: +Y = Spot FORWARD
         self.num_clusters = 4
-        self.dt = 1.0/30
         self.twod_area_size = 1.5
 
-        model_dir = "dgppo/logs/LidarTarget/dgppo/terrain_bent_bridge"
+        _ENV_CLASSES = {
+            'LidarTarget':   LidarTarget,
+            'LidarTargetV1': LidarTargetV1,
+            'LidarTargetV2': LidarTargetV2,
+            'LidarTargetV3': LidarTargetV3,
+            'LidarTargetV4': LidarTargetV4,
+        }
+
+        model_dir = "dgppo/logs/LidarTargetV1/dgppo/terrain_bent_bridge"
         config_path = os.path.join(model_dir, "config.yaml")
         params_path = os.path.join(model_dir, "models")
 
@@ -70,11 +87,15 @@ class DGPPOROSNode(Node):
         self.n_rays_phys = 72  # TODO: verify Spot LiDAR bin count
         # Merge class defaults so all keys (including n_rays=32) are present,
         # then apply specific overrides.
-        merged_params = {**LidarTarget.PARAMS, **env_kwargs.get('params', {})}
+        env_class_name = config.get('env', 'LidarTarget')
+        env_class = _ENV_CLASSES.get(env_class_name, LidarTarget)
+        self.get_logger().info(f"Using env class: {env_class_name}")
+
+        merged_params = {**env_class.PARAMS, **env_kwargs.get('params', {})}
         merged_params['top_k_rays'] = 8
         merged_params['comm_radius'] = 0.5
 
-        self.env_instance = LidarTarget(
+        self.env_instance = env_class(
             num_agents=config.get('num_agents'),
             params=merged_params,
             **{k: v for k, v in env_kwargs.items() if k != 'params'}
@@ -145,13 +166,13 @@ class DGPPOROSNode(Node):
         self.sim_origin_y = (_c[0] - self.origin_x) / self.scale_2d_3d  # centroid[0]=forward
 
         self.spot_yaw_pub = self.create_publisher(Float32MultiArray, '/dgppo_spot_yaw', 10)
-        self.spot_act_pub = self.create_publisher(Float32MultiArray, '/dgppo_action', 10)
+        self.spot_act_pub = self.create_publisher(Float32MultiArray, '/dgppo_action', 100)
         self.state_debug_pub = self.create_publisher(Float32MultiArray, '/dgppo_state_debug', 10)
         self.plan_step_pub = self.create_publisher(Int32, '/dgppo_plan_step', 10)
 
         self._take_lease_srv = self.create_service(Trigger, '/dgppo_take_lease', self._take_lease_callback)
 
-        self.timer = self.create_timer(0.1, self.control_loop)
+        self.timer = self.create_timer(self.env_instance.dt, self.control_loop)
 
         import datetime
         _log_dir = os.path.join(os.path.dirname(__file__), 'debug_logs')
@@ -184,6 +205,48 @@ class DGPPOROSNode(Node):
         self.get_logger().info("Current state")
         self.get_logger().info(str(self.state_client.get_robot_state()))
 
+        # Cache Spot state in a background thread so the control loop never blocks
+        # on a gRPC call.  The poller runs at ~50 Hz (20 ms); the control loop reads
+        # self._cached_robot_state which is always fresh enough.
+        self._cached_robot_state = None
+        self._state_lock = threading.Lock()
+        self._state_poller = threading.Thread(target=self._poll_spot_state, daemon=True)
+        self._state_poller.start()
+
+        # Command sender: inference writes (v_x, v_y) here; a background thread
+        # forwards it to Spot so robot_command gRPC never blocks the control loop.
+        self._cmd_vel = (0.0, 0.0)
+        self._cmd_lock = threading.Lock()
+        self._cmd_sender = threading.Thread(target=self._send_commands, daemon=True)
+        self._cmd_sender.start()
+
+    def _poll_spot_state(self):
+        """Background thread: keeps _cached_robot_state fresh at ~50 Hz."""
+        while True:
+            try:
+                rs = self.state_client.get_robot_state()
+                with self._state_lock:
+                    self._cached_robot_state = rs
+            except Exception:
+                pass
+            time.sleep(0.02)
+
+    def _send_commands(self):
+        """Background thread: forwards _cmd_vel to Spot at ~25 Hz so robot_command
+        gRPC never blocks the inference loop."""
+        while True:
+            with self._cmd_lock:
+                v_x, v_y = self._cmd_vel
+            try:
+                cmd = RobotCommandBuilder.synchro_velocity_command(v_x=v_x, v_y=v_y, v_rot=0.0)
+                self.command_client.robot_command(command=cmd, end_time_secs=time.time() + 0.5)
+                self._tablet_has_lease = False
+            except (LeaseUseError, bosdyn.client.lease.NotActiveLeaseError):
+                self._tablet_has_lease = True
+            except Exception:
+                pass
+            time.sleep(0.04)  # 25 Hz — well within the 500 ms command expiry window
+
     # yveys: Spot get_state function for easier access.
     def _get_spot_state(self):
         class Point:
@@ -191,7 +254,12 @@ class DGPPOROSNode(Node):
                 self.x = x
                 self.y = y
 
-        robot_state = self.state_client.get_robot_state()
+        with self._state_lock:
+            robot_state = self._cached_robot_state
+        if robot_state is None:
+            # Fallback: blocking call on first tick before cache is warm
+            robot_state = self.state_client.get_robot_state()
+
         kinematic_state = robot_state.kinematic_state
         pos_transforms = kinematic_state.transforms_snapshot
 
@@ -319,13 +387,13 @@ class DGPPOROSNode(Node):
 
         if debug_mode:
             current_cluster_id = self.get_parameter('current_cluster_id').get_parameter_value().integer_value
-            self.get_logger().info(f"DEBUG MODE: Using manual cluster ID {current_cluster_id}")
+            self.get_logger().info(f"DEBUG MODE: Using manual cluster ID {current_cluster_id}", throttle_duration_sec=1.0)
         else:
             current_cluster_id = self.latest_predicted_cluster_id
-            self.get_logger().info(f"Default MODE: Using predicted cluster ID {current_cluster_id}")
+            self.get_logger().info(f"Default MODE: Using predicted cluster ID {current_cluster_id}", throttle_duration_sec=1.0)
 
         mapped_current_cluster = self._map_cluster_id(current_cluster_id)
-        self.get_logger().info(f"current before:{current_cluster_id}, mapped before check: {mapped_current_cluster}")
+        self.get_logger().info(f"cluster raw={current_cluster_id} mapped={mapped_current_cluster}", throttle_duration_sec=1.0)
         if self._tablet_has_lease:
             self.get_logger().info(
                 "Tablet holds lease — plan paused, state updates running. "
@@ -409,7 +477,8 @@ class DGPPOROSNode(Node):
             f"plan={expected_start_cluster}→{expected_next_cluster} | "
             f"RANGES min={raw_ranges_np.min():.2f}m mean={raw_ranges_np.mean():.2f}m "
             f"n_at_max={n_maxed}/{len(raw_ranges_np)} | "
-            f"BEARING={math.degrees(bearing_val):.1f}° YAW={math.degrees(yaw):.1f}°"
+            f"BEARING={math.degrees(bearing_val):.1f}° YAW={math.degrees(yaw):.1f}°",
+            throttle_duration_sec=0.5,
         )
 
         graph = self._build_state_and_graph(
@@ -423,16 +492,25 @@ class DGPPOROSNode(Node):
         )
 
         self.rng_key, action_key = jr.split(self.rng_key)
+        _t_inf0 = time.time()
         action, new_rnn_state = self.algo.act(
             graph=graph,
             rnn_state=self.rnn_state,
             params={'policy': self.algo.policy_train_state.params}
         )
+        _inf_ms = (time.time() - _t_inf0) * 1000.0
+        self.get_logger().info(f"inference {_inf_ms:.1f} ms", throttle_duration_sec=1.0)
 
         self.rnn_state = new_rnn_state
+        if self.get_parameter('spoof_action').get_parameter_value().bool_value:
+            sx = self.get_parameter('spoof_action_x').get_parameter_value().double_value
+            sy = self.get_parameter('spoof_action_y').get_parameter_value().double_value
+            action = jnp.array([[sx, sy]], dtype=jnp.float32)
+            self.get_logger().info(f'[SPOOF] action x={sx:.3f}  y={sy:.3f}', throttle_duration_sec=0.5)
         action = self.clip_action(action)
         action_flat = [float(a) for a in np.array(action).flatten()]
         self._tick_record['action'] = action_flat
+        self._tick_record['inference_ms'] = round(_inf_ms, 2)
         self._tick_record['action_vx_ms'] = action_flat[0] * self.scale_2d_3d if len(action_flat) > 0 else 0.0
         self._tick_record['action_vy_ms'] = action_flat[1] * self.scale_2d_3d if len(action_flat) > 1 else 0.0
         self._debug_log_file.write(json.dumps(self._tick_record) + '\n')
@@ -451,8 +529,49 @@ class DGPPOROSNode(Node):
         # Reverse sim→Spot axis mapping: v_spot_x = sim_vel_y, v_spot_y = -sim_vel_x
         # Clamp to Spot's safe walking speed (SDK hard limit is 2.0 m/s)
         SPOT_MAX_VEL = 0.5  # m/s — conservative safe limit
-        v_x_target = float(np.clip(float(new_movement_targets[3]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
-        v_y_target = float(np.clip(-float(new_movement_targets[2]) * self.scale_2d_3d, -SPOT_MAX_VEL, SPOT_MAX_VEL))
+        v_x_raw = float(new_movement_targets[3]) * self.scale_2d_3d
+        v_y_raw = -float(new_movement_targets[2]) * self.scale_2d_3d
+        max_component = max(abs(v_x_raw), abs(v_y_raw))
+        scale = min(1.0, SPOT_MAX_VEL / max_component) if max_component > 0 else 1.0
+        v_x_target = v_x_raw * scale
+        v_y_target = v_y_raw * scale
+
+        # ── Step-test overrides ───────────────────────────────────────────────
+        STEP_VX = 0.4  # m/s forward — safe walking speed for both modes
+
+        if self.get_parameter('step_test_once').get_parameter_value().bool_value:
+            # Single step: command STEP_VX and hold.
+            # Tells you:
+            #   pure delay  → time from step edge to first detectable motion in reported vel
+            #   rise time   → time for reported vel to climb from 0 to ~90% of STEP_VX
+            # Disable with: ros2 param set /dgppo_ros_node step_test_once false
+            if self._step_test_t0 is None:
+                self._step_test_t0 = time.time()
+            v_x_target = STEP_VX
+            v_y_target = 0.0
+            self.get_logger().info(
+                f'[STEP ONCE] t={time.time() - self._step_test_t0:.2f}s  vx={v_x_target:.2f} m/s',
+                throttle_duration_sec=0.5,
+            )
+        elif self.get_parameter('step_test').get_parameter_value().bool_value:
+            # Repeating square wave: 0 → STEP_VX → 0, 4 s per half-cycle.
+            # Tells you:
+            #   phase lag   → cross-correlation peak (automated number on the plot)
+            # 4 s half-period >> expected rise time (~300-500 ms) so Spot fully
+            # settles before each transition — clean edges for xcorr.
+            # Run for ≥30 s (3+ full cycles) for a stable estimate.
+            STEP_HALF_PERIOD = 4.0
+            if self._step_test_t0 is None:
+                self._step_test_t0 = time.time()
+            phase = (time.time() - self._step_test_t0) % (2.0 * STEP_HALF_PERIOD)
+            v_x_target = STEP_VX if phase < STEP_HALF_PERIOD else 0.0
+            v_y_target = 0.0
+            self.get_logger().info(
+                f'[STEP TEST] phase={phase:.2f}s  vx={v_x_target:.2f} m/s',
+                throttle_duration_sec=0.5,
+            )
+        else:
+            self._step_test_t0 = None  # reset timer when both modes are off
 
         _dbg = Float32MultiArray()
         _dbg.data = [
@@ -462,6 +581,8 @@ class DGPPOROSNode(Node):
             float(sim_pos_x),    float(sim_pos_y),    # [6,7]  DGPPO sim pos (scaled)
             float(sim_vel_x),    float(sim_vel_y),    # [8,9]  DGPPO sim vel (scaled)
             float(v_x_target),   float(v_y_target),   # [10,11] cmd to Spot, vision frame (m/s)
+            float(action_flat[0]) if len(action_flat) > 0 else 0.0,  # [12] raw policy a[0] (sim-X → right)
+            float(action_flat[1]) if len(action_flat) > 1 else 0.0,  # [13] raw policy a[1] (sim-Y → fwd)
         ]
         self.state_debug_pub.publish(_dbg)
 
@@ -474,44 +595,22 @@ class DGPPOROSNode(Node):
         self.plan_step_pub.publish(plan_step_msg)
 
         dry_run = self.get_parameter('dry_run').get_parameter_value().bool_value
-        velocity_command = RobotCommandBuilder.synchro_velocity_command(v_x=v_x_target, v_y=v_y_target, v_rot=0.0)
         if dry_run:
-            self.get_logger().info(f"[DRY RUN] Action: {action}  Vel X: {v_x_target:.3f}  Vel Y: {v_y_target:.3f}  (no command sent)")
+            self.get_logger().info(
+                f"[DRY RUN] vx={v_x_target:.3f}  vy={v_y_target:.3f}  (no command sent)",
+                throttle_duration_sec=0.5)
         else:
-            try:
-                self.command_client.robot_command(command=velocity_command, end_time_secs=time.time() + 0.5)
-                self._tablet_has_lease = False  # command succeeded — we still hold the lease
-                self.get_logger().info(f"Action: {action}")
-                self.get_logger().info(f"Vel X: {v_x_target}, Vel Y: {v_y_target}")
-            except (LeaseUseError, bosdyn.client.lease.NotActiveLeaseError) as e:
-                if not self._tablet_has_lease:
-                    self.get_logger().warning(
-                        f"Tablet has taken the lease — plan paused, state updates continue. "
-                        f"To reclaim: ros2 service call /dgppo_take_lease std_srvs/srv/Trigger '{{}}' "
-                        f"({type(e).__name__})"
-                    )
-                    # Stop the SDK keep-alive thread; otherwise its RetainLease RPCs keep
-                    # failing and spamming "Generic exception ... during check-in: LeaseUseError".
-                    try:
-                        self.lease_keep_alive.shutdown()
-                    except Exception as shutdown_err:
-                        self.get_logger().warning(f"Lease keep-alive shutdown failed: {shutdown_err}")
-                self._tablet_has_lease = True
+            with self._cmd_lock:
+                self._cmd_vel = (v_x_target, v_y_target)
+            self.get_logger().info(
+                f"vx={v_x_target:.3f}  vy={v_y_target:.3f}",
+                throttle_duration_sec=0.5)
 
     def agent_step_euler(self, agent_states: AgentState, action: Action) -> AgentState:
-        """Velocity control: action in [-1,1] is directly the velocity command (scaled to ±0.5)."""
-        assert action.shape == (self.env_instance.num_agents, self.env_instance.action_dim)
-        assert agent_states.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
-        vel = action * 0.5                                        # action [-1,1] → vel [-0.5, 0.5]
-        next_pos = agent_states[:, :2] + vel * self.dt            # first-order integration
-        n_state_agent_new = jnp.concatenate([next_pos, vel], axis=1)
-        assert n_state_agent_new.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
-        return self.clip_state(n_state_agent_new)
+        return self.env_instance.agent_step_euler(agent_states, action)
 
     def state_lim(self) -> Tuple[State, State]:
-        lower_lim = jnp.array([0., 0., -0.5, -0.5])
-        upper_lim = jnp.array([self.twod_area_size, self.twod_area_size, 0.5, 0.5])
-        return lower_lim, upper_lim
+        return self.env_instance.state_lim()
 
     def action_lim(self) -> Tuple[Action, Action]:
         lower_lim = jnp.ones(2) * -1.0
@@ -530,7 +629,7 @@ class DGPPOROSNode(Node):
                                mapped_current_cluster_id: int, mapped_start_cluster_id: int,
                                mapped_next_cluster_id: int, bonus_awarded_updated: jnp.ndarray,
                                yaw: float = 0.0) -> GraphsTuple:
-        self.get_logger().info(f"Agent state (scaled): {agent_state_np}")
+        self.get_logger().info(f"Agent state (scaled): {agent_state_np}", throttle_duration_sec=0.5)
 
         n_rays = self.env_instance.params['n_rays']  # 32
         agent_pos_2d = np.array(agent_state_np[0, :2])
@@ -572,7 +671,8 @@ class DGPPOROSNode(Node):
         bearing_value = self.bearing_map.get(key, 0.0) + math.radians(angular_offset)
         self.get_logger().info(
             f"Start:{mapped_start_cluster_id} Cur:{mapped_current_cluster_id} "
-            f"Next:{mapped_next_cluster_id} Bearing:{bearing_value:.3f}"
+            f"Next:{mapped_next_cluster_id} Bearing:{bearing_value:.3f}",
+            throttle_duration_sec=0.5,
         )
 
         goal_state_np = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)

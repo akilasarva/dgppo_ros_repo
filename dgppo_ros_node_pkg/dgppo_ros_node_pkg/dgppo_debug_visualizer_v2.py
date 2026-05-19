@@ -55,10 +55,11 @@ from rclpy.qos import qos_profile_sensor_data
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
-NUM_RANGES  = 72
-TOP_K       = 8
-HISTORY_LEN = 20
-WEB_PORT    = 8765
+NUM_RANGES   = 72
+TOP_K        = 8
+HISTORY_LEN  = 20
+VEL_HIST_LEN = 300   # ~24 s at 80 ms update rate (fits 3+ cycles of 4 s half-period step test)
+WEB_PORT     = 8765
 
 TERRAIN_NAMES = {0: "Road", 1: "Grass", 2: "Sidewalk"}
 CLUSTER_NAMES = {0: "open_space", 1: "approach_bridge", 2: "on_bridge", 3: "exit_bridge"}
@@ -83,6 +84,8 @@ C_BEARING       = '#ffd700'    # gold: plan bearing
 C_HEADING       = '#cc44ff'    # purple: spot heading
 C_TRAIL         = '#3060cc'    # blue: action trail
 C_WARN          = '#ff4444'    # red: stop/no-action
+C_REP_VEL       = '#44aaff'    # blue: reported velocity arrow (matches vel-plot rep color)
+C_RAW_ACTION    = '#ff9900'    # orange: raw (unclipped) policy action unit vector
 C_CLOUD_ALL     = '#2a2a3a'    # dim: all raw cloud XY
 C_CLOUD_SLICE_Z = '#ffcc00'    # yellow: Z-height slice (controls clustering)
 C_CLOUD_SLICE_I = '#ff44cc'    # magenta: intensity slice (visual only)
@@ -101,9 +104,11 @@ class FilterConfig:
         self.z2_lower  = 0.0
         self.max_range = 8.0
         self.min_range = 0.5
-        self.use_intensity = False
-        self.int_lower = 0.0
-        self.int_upper = 255.0
+        self.use_intensity  = False
+        self.int_lower      = 0.0
+        self.int_upper      = 255.0
+        self.density_radius = 0.30
+        self.min_neighbors  = 4
         self._load()
 
     def _load(self):
@@ -134,6 +139,7 @@ class FilterConfig:
                 max_range=self.max_range, min_range=self.min_range,
                 use_intensity=self.use_intensity,
                 int_lower=self.int_lower, int_upper=self.int_upper,
+                density_radius=self.density_radius, min_neighbors=self.min_neighbors,
             )
 
     def set(self, **kw):
@@ -163,6 +169,18 @@ class DebugState:
         self.raw_frame_jpg   = None   # bytes: JPEG of raw ZED image
         self.hsv_frame_jpg   = None   # bytes: JPEG of HSV-segmented image
         self.state_debug     = None   # 12-float transform debug from /dgppo_state_debug
+        # velocity time-series (cmd vs reported, vision frame)
+        self._vel_t0    = None
+        self.vel_times   = deque(maxlen=VEL_HIST_LEN)
+        self.cmd_vx_hist = deque(maxlen=VEL_HIST_LEN)
+        self.cmd_vy_hist = deque(maxlen=VEL_HIST_LEN)
+        self.rep_vx_hist = deque(maxlen=VEL_HIST_LEN)
+        self.rep_vy_hist = deque(maxlen=VEL_HIST_LEN)
+        # step-test metrics: persist once detected, reset when cmd returns to ~0
+        self.step_delay_ms = None
+        self.step_rise_ms  = None
+        # per-cycle metrics: one entry per rising edge seen
+        self.cycle_metrics = deque(maxlen=50)
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -194,7 +212,37 @@ class DebugState:
         with self._lock: self.hsv_frame_jpg = jpg
 
     def set_state_debug(self, data):
-        with self._lock: self.state_debug = data
+        with self._lock:
+            self.state_debug = data
+            now = time.time()
+            if self._vel_t0 is None:
+                self._vel_t0 = now
+            self.vel_times.append(now - self._vel_t0)
+            self.cmd_vx_hist.append(data[10])
+            self.cmd_vy_hist.append(data[11])
+            self.rep_vx_hist.append(data[2])
+            self.rep_vy_hist.append(data[3])
+            # Persist step-test metrics; reset only when cmd returns near zero
+            t_arr  = np.array(self.vel_times)
+            cmd_vx = np.array(self.cmd_vx_hist)
+            rep_vx = np.array(self.rep_vx_hist)
+            if len(t_arr) >= 5 and float(np.mean(cmd_vx[-5:])) < 0.1:
+                self.step_delay_ms = None
+                self.step_rise_ms  = None
+            else:
+                d, r = _detect_step_metrics(t_arr, cmd_vx, rep_vx)
+                if d is not None:
+                    self.step_delay_ms = d
+                if r is not None:
+                    self.step_rise_ms = r
+            # Per-cycle metrics: append any new edges not yet recorded
+            cycles = _detect_cycle_metrics(t_arr, cmd_vx, rep_vx)
+            if cycles:
+                last_t = self.cycle_metrics[-1][0] if self.cycle_metrics else -1.0
+                for entry in cycles:
+                    if entry[0] > last_t + 0.1:
+                        self.cycle_metrics.append(entry)
+                        last_t = entry[0]
 
     def get_raw_frame(self):
         with self._lock: return self.raw_frame_jpg
@@ -219,6 +267,14 @@ class DebugState:
                                    if self.raw_cloud is not None else None,
                 filter_cfg       = self.filter_cfg.get(),
                 state_debug      = self.state_debug,
+                vel_times        = list(self.vel_times),
+                cmd_vx_hist      = list(self.cmd_vx_hist),
+                cmd_vy_hist      = list(self.cmd_vy_hist),
+                rep_vx_hist      = list(self.rep_vx_hist),
+                rep_vy_hist      = list(self.rep_vy_hist),
+                step_delay_ms    = self.step_delay_ms,
+                step_rise_ms     = self.step_rise_ms,
+                cycle_metrics    = list(self.cycle_metrics),
             )
 
 
@@ -289,13 +345,15 @@ class DebugSubscriber(Node):
     def _pub_cfg(self):
         cfg = self.state.filter_cfg.get()
         m = Float32MultiArray()
-        # Layout: [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range, use_intensity, int_lower, int_upper]
+        # Layout: [z_upper, z_lower, z2_upper, z2_lower, max_range, min_range,
+        #          use_intensity, int_lower, int_upper, density_radius, min_neighbors]
         m.data = [
             cfg['z_upper'], cfg['z_lower'],
             cfg['z2_upper'], cfg['z2_lower'],
             cfg['max_range'], cfg['min_range'],
             float(cfg['use_intensity']),
             cfg['int_lower'], cfg['int_upper'],
+            cfg['density_radius'], float(cfg['min_neighbors']),
         ]
         self._cfg_pub.publish(m)
 
@@ -348,6 +406,22 @@ def _bearing_for_step(snap):
     return None, None
 
 
+def _apply_density_filter(xy, neighbor_radius=0.30, min_neighbors=4):
+    """Return boolean mask (len N) — True where point has >= min_neighbors within radius.
+
+    Isolated returns (noise/rain/multipath) have 0 neighbours; solid surfaces cluster densely.
+    Requires scipy; if unavailable all points are accepted (no filtering).
+    """
+    if len(xy) <= min_neighbors:
+        return np.zeros(len(xy), dtype=bool)
+    try:
+        from scipy.spatial import cKDTree
+        counts = cKDTree(xy).query_ball_point(xy, r=neighbor_radius, return_length=True)
+        return (counts - 1) >= min_neighbors  # -1 excludes self
+    except ImportError:
+        return np.ones(len(xy), dtype=bool)
+
+
 def _apply_slice_filter(raw_cloud, cfg):
     """Split raw_cloud (N,4) into (all_xy, slice_xy) with x already negated.
 
@@ -375,6 +449,99 @@ def _apply_slice_filter(raw_cloud, cfg):
     return xy_flipped, xy_flipped[band_mask & range_mask]
 
 
+def _estimate_lag_ms(t_arr, cmd, rep):
+    """Cross-correlation lag estimate (cmd → reported) in milliseconds.
+    Returns None when signal variance is too low for a reliable estimate."""
+    if len(t_arr) < 20 or cmd.std() < 0.02 or rep.std() < 0.02:
+        return None
+    dt = float(np.mean(np.diff(t_arr)))
+    cc = np.correlate(rep - rep.mean(), cmd - cmd.mean(), mode='full')
+    lags = np.arange(-(len(cmd) - 1), len(cmd))
+    lag_s = float(lags[int(np.argmax(cc))]) * dt
+    return lag_s * 1000.0 if 0.0 <= lag_s <= 3.0 else None
+
+
+def _detect_step_metrics(t_arr, cmd_vx, rep_vx):
+    """Detect pure transport delay and 0→90% rise time from the most recent
+    rising edge in cmd_vx.  Returns (delay_ms, rise_ms); either may be None."""
+    if len(t_arr) < 5:
+        return None, None
+    STEP_ON = 0.25   # cmd must cross this threshold upward to count as a step
+    REP_THR = 0.02   # first detectable motion in reported vel
+
+    # Find most recent rising edge in cmd
+    step_idx = None
+    for i in range(len(cmd_vx) - 1, 0, -1):
+        if cmd_vx[i] >= STEP_ON and cmd_vx[i - 1] < STEP_ON:
+            step_idx = i
+            break
+    if step_idx is None:
+        return None, None
+
+    t_step = t_arr[step_idx]
+
+    # Pure delay: first rep sample above REP_THR after the step edge
+    delay_ms = None
+    for i in range(step_idx, len(rep_vx)):
+        if rep_vx[i] > REP_THR:
+            delay_ms = (t_arr[i] - t_step) * 1000.0
+            break
+
+    # Rise time: step edge → rep reaches 90 % of its own actual peak
+    # (use reported peak, not commanded, because Spot has steady-state error)
+    rise_ms = None
+    rep_after = rep_vx[step_idx:]
+    if len(rep_after) > 3:
+        actual_peak = float(np.max(rep_after))
+        if actual_peak > 0.05:
+            t90 = actual_peak * 0.9
+            for i in range(step_idx, len(rep_vx)):
+                if rep_vx[i] >= t90:
+                    rise_ms = (t_arr[i] - t_step) * 1000.0
+                    break
+
+    return delay_ms, rise_ms
+
+
+def _detect_cycle_metrics(t_arr, cmd_vx, rep_vx):
+    """For each rising edge in cmd_vx compute per-cycle pure delay and 0→90% rise time.
+    Returns list of (t_edge, delay_ms, rise_ms) — rise_ms is None if not yet reached."""
+    STEP_ON = 0.25
+    REP_THR = 0.02
+    edges = [i for i in range(1, len(cmd_vx))
+             if cmd_vx[i] >= STEP_ON and cmd_vx[i - 1] < STEP_ON]
+    results = []
+    for step_idx in edges:
+        t_step = t_arr[step_idx]
+        # Window: this edge → next falling edge (or end of buffer)
+        end_idx = len(cmd_vx)
+        for j in range(step_idx + 1, len(cmd_vx)):
+            if cmd_vx[j] < STEP_ON and cmd_vx[j - 1] >= STEP_ON:
+                end_idx = j
+                break
+        if end_idx - step_idx < 5:
+            continue
+        delay_ms = None
+        for i in range(step_idx, end_idx):
+            if rep_vx[i] > REP_THR:
+                delay_ms = (t_arr[i] - t_step) * 1000.0
+                break
+        rise_ms = None
+        rep_window = rep_vx[step_idx:end_idx]
+        if len(rep_window) > 3:
+            actual_peak = float(np.max(rep_window))
+            if actual_peak > 0.05:
+                t90 = actual_peak * 0.9
+                for i in range(step_idx, end_idx):
+                    if rep_vx[i] >= t90:
+                        rise_ms = (t_arr[i] - t_step) * 1000.0
+                        break
+        if delay_ms is not None:
+            results.append((float(t_step), float(delay_ms),
+                            float(rise_ms) if rise_ms is not None else None))
+    return results
+
+
 # ── Desktop visualizer ────────────────────────────────────────────────────────
 
 def _style_3d(ax3d):
@@ -387,7 +554,8 @@ def _style_3d(ax3d):
     ax3d.yaxis.label.set_color(C_DIM); ax3d.yaxis.label.set_fontsize(7)
     ax3d.zaxis.label.set_color(C_DIM); ax3d.zaxis.label.set_fontsize(7)
     ax3d.set_xlabel('X'); ax3d.set_ylabel('Y'); ax3d.set_zlabel('Z')
-    ax3d.set_title('Point Cloud 3D · yellow = z slice', color=C_TEXT, fontsize=8)
+    ax3d.set_title('Point Cloud 3D · slice: yellow=structure  red=noise (density filter)',
+                   color=C_TEXT, fontsize=8)
     ax3d.view_init(elev=20, azim=-60)
 
 def _build_figure():
@@ -395,7 +563,7 @@ def _build_figure():
     fig.suptitle('DGPPO Policy Debugger  v2', color=C_TEXT, fontsize=14,
                  y=0.985, fontweight='bold')
 
-    ax = fig.add_axes([0.02, 0.17, 0.37, 0.79])
+    ax = fig.add_axes([0.02, 0.36, 0.37, 0.60])
     ax.set_facecolor(C_PANEL)
     lim = 9.5
     ax.set_xlim(-lim, lim); ax.set_ylim(-lim, lim); ax.set_aspect('equal')
@@ -421,23 +589,63 @@ def _build_figure():
         mpatches.Patch(color='#555566',       label='raw cloud (all XY)'),
         mpatches.Patch(color=C_CLOUD_SLICE_Z, label='Z-height slice  → clustering node'),
         mpatches.Patch(color=C_CLOUD_SLICE_I, label='Intensity slice (visual only)'),
+        mpatches.Patch(color='#ff4444',       label='slice: density-filtered noise'),
         mpatches.Patch(color=C_LIDAR,         label=f'processed ranges ({NUM_RANGES} bins)'),
         mpatches.Patch(color=C_TOPK,          label=f'top-{TOP_K} closest → policy input'),
-        mpatches.Patch(color=C_ACTION,        label='action direction (unit vec)'),
+        mpatches.Patch(color=C_ACTION,        label='action direction (unit vec, clipped)'),
+        mpatches.Patch(color=C_RAW_ACTION,    label='raw policy output (unit vec, unclipped)'),
+        mpatches.Patch(color=C_REP_VEL,       label='reported vel  (body frame, unit vec)'),
         mpatches.Patch(color=C_BEARING,       label='plan bearing  (0=FWD=UP)'),
         mpatches.Patch(color=C_HEADING,       label='spot heading  (0=FWD=UP)'),
     ]
-    ax.legend(handles=leg, loc='lower right', facecolor=C_BG,
-              edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=7.5)
+    ax.legend(handles=leg, loc='upper left',
+              bbox_to_anchor=(0.0, -0.01), bbox_transform=ax.transAxes,
+              facecolor=C_BG, edgecolor=C_GRID, labelcolor=C_TEXT,
+              fontsize=6.5, ncols=3)
 
     if _HAS_3D:
-        ax3d = fig.add_axes([0.42, 0.17, 0.24, 0.79], projection='3d')
+        ax3d = fig.add_axes([0.42, 0.36, 0.24, 0.60], projection='3d')
         _style_3d(ax3d)
     else:
         ax3d = None
 
-    ax_info = fig.add_axes([0.69, 0.17, 0.29, 0.79])
+    ax_info = fig.add_axes([0.69, 0.36, 0.29, 0.60])
     ax_info.set_facecolor(C_PANEL); ax_info.axis('off')
+
+    # Velocity time-series: cmd (red) vs reported (blue) in vision frame
+    def _vel_ax(left, title):
+        a = fig.add_axes([left, 0.10, 0.17, 0.21])
+        a.set_facecolor(C_PANEL)
+        a.set_title(title, color=C_TEXT, fontsize=8, pad=3)
+        a.set_xlabel('time  s', color=C_DIM, fontsize=6)
+        a.set_ylabel('m/s', color=C_DIM, fontsize=6)
+        a.tick_params(colors=C_DIM, labelsize=6)
+        a.axhline(0, color=C_GRID, lw=0.6, ls='--')
+        for s in a.spines.values(): s.set_color(C_GRID)
+        return a
+
+    ax_vx = _vel_ax(0.02, 'vx  (vision frame)')
+    ax_vy = _vel_ax(0.21, 'vy  (vision frame)')
+    leg_patches = [
+        mpatches.Patch(color='#ff4466', label='cmd'),
+        mpatches.Patch(color='#44aaff', label='reported'),
+    ]
+    for _a in (ax_vx, ax_vy):
+        _a.legend(handles=leg_patches, loc='upper left', facecolor=C_BG,
+                  edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=6)
+
+    def _cycle_ax(bottom, title, color):
+        a = fig.add_axes([0.40, bottom, 0.26, 0.095])
+        a.set_facecolor(C_PANEL)
+        a.set_title(title, color=color, fontsize=8, pad=2)
+        a.set_ylabel('ms', color=C_DIM, fontsize=6)
+        a.tick_params(colors=C_DIM, labelsize=6)
+        for s in a.spines.values(): s.set_color(C_GRID)
+        return a
+
+    ax_delay = _cycle_ax(0.212, 'pure delay  (transport)', '#44aaff')
+    ax_rise  = _cycle_ax(0.100, 'rise 0→90%  (mechanical)', '#00cc44')
+    ax_rise.set_xlabel('cycle edge  s', color=C_DIM, fontsize=6)
 
     # Slider row — 6 sliders + mode toggle
     s_h, s_y, g = 0.028, 0.022, 0.087
@@ -486,14 +694,22 @@ def _build_figure():
                      rmin=sl_rmin, rmax=sl_rmax, mode=rb_mode)
     textboxes = dict(zlo=tb_zlo, zhi=tb_zhi, ilo=tb_ilo, ihi=tb_ihi,
                      rmin=tb_rmin, rmax=tb_rmax)
-    return fig, ax, ax3d, ax_info, sliders, textboxes
+    return fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise
 
 
 def run_desktop(state: DebugState):
-    fig, ax, ax3d, ax_info, sliders, textboxes = _build_figure()
+    fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
     H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
-         'trail': [], 'texts': []}
+         'rep_vel': None, 'raw_action': None, 'trail': [], 'texts': []}
+
+    _empty: list = []
+    ln_cmd_vx, = ax_vx.plot(_empty, _empty, color='#ff4466', lw=1.5)
+    ln_rep_vx, = ax_vx.plot(_empty, _empty, color='#44aaff', lw=1.5)
+    ln_cmd_vy, = ax_vy.plot(_empty, _empty, color='#ff4466', lw=1.5)
+    ln_rep_vy, = ax_vy.plot(_empty, _empty, color='#44aaff', lw=1.5)
+    ln_delay_cyc, = ax_delay.plot(_empty, _empty, 'o-', color='#44aaff', ms=5, lw=1.2)
+    ln_rise_cyc,  = ax_rise.plot(_empty, _empty,  's-', color='#00cc44', ms=5, lw=1.2)
 
     def _apply_filter_cfg():
         state.filter_cfg.set(
@@ -532,7 +748,7 @@ def run_desktop(state: DebugState):
 
     def _clear():
         _rm(H['lidar']); _rm(H['trail']); _rm(H['texts'])
-        for k in ('arrow', 'bearing', 'heading'):
+        for k in ('arrow', 'bearing', 'heading', 'rep_vel', 'raw_action'):
             if H[k] is not None:
                 try: H[k].remove()
                 except Exception: pass
@@ -545,6 +761,9 @@ def run_desktop(state: DebugState):
         return ax.annotate('', xy=xy_tip, xytext=(0, 0),
                            arrowprops=dict(arrowstyle='->', color=color,
                                            lw=lw, mutation_scale=28, alpha=alpha))
+
+    _xcorr_ema = [None, None]   # [vx_ema, vy_ema] — smoothed xcorr lag
+    _XCORR_ALPHA = 0.2          # EMA weight for each new sample
 
     def update(_frame):
         snap = state.snapshot()
@@ -578,14 +797,37 @@ def run_desktop(state: DebugState):
                                              color=C_CLOUD_ALL, zorder=1,
                                              linewidths=0, alpha=0.7))
             if slice_xy is not None and len(slice_xy):
-                stride = max(1, len(slice_xy) // 800)
-                d = slice_xy[::stride]
-                H['lidar'].append(ax.scatter(d[:, 0], d[:, 1], s=4,
-                                             color=slice_color, zorder=2,
-                                             linewidths=0, alpha=0.85))
+                pass_mask  = _apply_density_filter(slice_xy,
+                                                   cfg['density_radius'],
+                                                   cfg['min_neighbors'])
+                for pts, color, alpha in [
+                    (slice_xy[~pass_mask], '#ff4444', 0.70),   # noise — red
+                    (slice_xy[ pass_mask], slice_color, 0.85), # structure — slice color
+                ]:
+                    if len(pts):
+                        stride = max(1, len(pts) // 800)
+                        d = pts[::stride]
+                        H['lidar'].append(ax.scatter(d[:, 0], d[:, 1], s=4,
+                                                     color=color, zorder=2,
+                                                     linewidths=0, alpha=alpha))
 
         # ── 3D point cloud with z-slice planes — world-frame R(ψ) applied ──
+        # Slice points are split by spatial density filter:
+        #   slice color = structure (density-pass)   red = noise (density-fail)
         if ax3d is not None and raw_cloud is not None and len(raw_cloud) > 0:
+            # Classify density pass/fail on the full (pre-stride) cloud so that
+            # neighbour counts aren't artificially depleted by striding.
+            z_all       = raw_cloud[:, 2]
+            in_band_all = (z_all >= cfg['z_lower']) & (z_all <= cfg['z_upper'])
+            density_pass = np.zeros(len(raw_cloud), dtype=bool)
+            if np.any(in_band_all):
+                xy_in        = raw_cloud[in_band_all, :2]
+                pass_local   = _apply_density_filter(xy_in,
+                                                     cfg['density_radius'],
+                                                     cfg['min_neighbors'])
+                density_pass[np.where(in_band_all)[0][pass_local]] = True
+            density_fail = in_band_all & ~density_pass
+
             stride3 = max(1, len(raw_cloud) // 800)
             pts3    = raw_cloud[::stride3]
             x3_raw, y3_raw, z3 = pts3[:, 0], pts3[:, 1], pts3[:, 2]
@@ -593,16 +835,20 @@ def run_desktop(state: DebugState):
             x3 = y3_raw * cos_ψ - x3_raw * sin_ψ  # world right
             y3 = y3_raw * sin_ψ + x3_raw * cos_ψ  # world fwd
 
-            in_band  = (z3 >= cfg['z_lower']) & (z3 <= cfg['z_upper'])
-            out_band = ~in_band
+            out_band3  = ~in_band_all[::stride3]
+            in_pass3   = density_pass[::stride3]
+            in_fail3   = density_fail[::stride3]
 
-            if np.any(out_band):
-                ax3d.scatter(x3[out_band], y3[out_band], z3[out_band],
+            sc = C_CLOUD_SLICE_I if cfg['use_intensity'] else C_CLOUD_SLICE_Z
+            if np.any(out_band3):
+                ax3d.scatter(x3[out_band3], y3[out_band3], z3[out_band3],
                              s=1, c='#2a2a3a', alpha=0.35, linewidths=0, depthshade=False)
-            if np.any(in_band):
-                sc = C_CLOUD_SLICE_I if cfg['use_intensity'] else C_CLOUD_SLICE_Z
-                ax3d.scatter(x3[in_band], y3[in_band], z3[in_band],
+            if np.any(in_pass3):
+                ax3d.scatter(x3[in_pass3], y3[in_pass3], z3[in_pass3],
                              s=6, c=sc, alpha=0.9, linewidths=0, depthshade=False)
+            if np.any(in_fail3):
+                ax3d.scatter(x3[in_fail3], y3[in_fail3], z3[in_fail3],
+                             s=6, c='#ff4444', alpha=0.85, linewidths=0, depthshade=False)
 
             # Semi-transparent planes marking z_lower and z_upper
             lim3 = cfg['max_range']
@@ -661,6 +907,22 @@ def run_desktop(state: DebugState):
             a = (bearing_rad - yaw_off) + math.pi / 2
             H['bearing'] = _arrow((math.cos(a), math.sin(a)), C_BEARING, 3.0)
 
+        # ── Reported velocity (body frame): fwd=sd[4], lat=sd[5] positive-left ──
+        sd_now = snap.get('state_debug')
+        if sd_now and len(sd_now) >= 6:
+            rv_fwd = sd_now[4]
+            rv_right = -sd_now[5]   # lat is positive-left; negate for right-positive display
+            rv_mag = math.hypot(rv_fwd, rv_right)
+            if rv_mag > 0.02:
+                H['rep_vel'] = _arrow((rv_right / rv_mag, rv_fwd / rv_mag), C_REP_VEL, 3.0)
+
+        # ── Raw (unclipped) policy action unit vector: sd[12]=right, sd[13]=fwd ──
+        if sd_now and len(sd_now) >= 14:
+            ra_right, ra_fwd = sd_now[12], sd_now[13]
+            ra_mag = math.hypot(ra_right, ra_fwd)
+            if ra_mag > 0.02:
+                H['raw_action'] = _arrow((ra_right / ra_mag, ra_fwd / ra_mag), C_RAW_ACTION, 3.0)
+
         # ── Action: atan2(a1_fwd, a0_right) already gives FWD=UP ─────────
         if snap['has_action']:
             if mag > 0.02:
@@ -680,12 +942,73 @@ def run_desktop(state: DebugState):
             H['texts'].append(ax.text(0, 0, 'waiting\n/dgppo_action',
                                       color=C_DIM, ha='center', va='center', fontsize=11))
 
+        # ── Pre-compute velocity history + lags (reused in panel and vel plots) ──
+        t_arr   = np.array(snap.get('vel_times', []))
+        has_vel = len(t_arr) >= 2
+        cmd_vx  = np.array(snap['cmd_vx_hist']) if has_vel else np.array([])
+        rep_vx  = np.array(snap['rep_vx_hist']) if has_vel else np.array([])
+        cmd_vy  = np.array(snap['cmd_vy_hist']) if has_vel else np.array([])
+        rep_vy  = np.array(snap['rep_vy_hist']) if has_vel else np.array([])
+        raw_vx = _estimate_lag_ms(t_arr, cmd_vx, rep_vx) if has_vel else None
+        raw_vy = _estimate_lag_ms(t_arr, cmd_vy, rep_vy) if has_vel else None
+        if raw_vx is not None:
+            _xcorr_ema[0] = raw_vx if _xcorr_ema[0] is None \
+                            else (1 - _XCORR_ALPHA) * _xcorr_ema[0] + _XCORR_ALPHA * raw_vx
+        if raw_vy is not None:
+            _xcorr_ema[1] = raw_vy if _xcorr_ema[1] is None \
+                            else (1 - _XCORR_ALPHA) * _xcorr_ema[1] + _XCORR_ALPHA * raw_vy
+        lag_vx = _xcorr_ema[0]
+        lag_vy = _xcorr_ema[1]
+        delay_ms = snap.get('step_delay_ms')
+        rise_ms  = snap.get('step_rise_ms')
+
+        if has_vel and len(cmd_vx) >= 2:
+            std_rep_vx = float(np.std(rep_vx))
+            std_rep_vy = float(np.std(rep_vy))
+            std_err_vx = float(np.std(rep_vx - cmd_vx))
+            std_err_vy = float(np.std(rep_vy - cmd_vy))
+        else:
+            std_rep_vx = std_rep_vy = std_err_vx = std_err_vy = None
+
+        def _lag_row(lbl, lag):
+            if lag is not None:
+                c = C_LIDAR if lag < 150 else '#ffaa00' if lag < 400 else C_WARN
+                return (lbl, f'{lag:.0f} ms', c)
+            return (lbl, 'low signal', C_DIM)
+
         # ── Info panel ────────────────────────────────────────────────────
         tid   = snap['terrain_id']
         tc    = {0: '#ffaa44', 1: '#44ff88', 2: '#aaaaff'}.get(tid, C_TEXT)
         cname = CLUSTER_NAMES.get(mapped, f'cls_{mapped}') if mapped is not None else '—'
+        sd    = snap.get('state_debug')
 
-        rows = [('TERRAIN', TERRAIN_NAMES.get(tid, f'T{tid}'), tc), ('', '', '')]
+        # Latency section — top of panel, most important for step tests
+        rows = [('── LATENCY ──', '', '#555566')]
+        if sd and len(sd) >= 12:
+            cvx, cvy = sd[10], sd[11]
+            rvx, rvy = sd[2],  sd[3]
+            rows += [('cmd vx/vy  m/s', f'{cvx:+.3f} / {cvy:+.3f}', '#ff4466'),
+                     ('rep vx/vy  m/s', f'{rvx:+.3f} / {rvy:+.3f}', '#44aaff'),
+                     ('err vx/vy  m/s', f'{cvx-rvx:+.3f} / {cvy-rvy:+.3f}', '#ffaa44')]
+        else:
+            rows.append(('cmd/rep', 'waiting...', C_DIM))
+        rows += [_lag_row('xcorr lag vx', lag_vx),
+                 _lag_row('xcorr lag vy', lag_vy)]
+        if std_rep_vx is not None:
+            rows += [('σ_rep vx/vy m/s', f'{std_rep_vx:.3f} / {std_rep_vy:.3f}', '#44aaff'),
+                     ('σ_err vx/vy m/s', f'{std_err_vx:.3f} / {std_err_vy:.3f}', '#ffaa44')]
+
+        def _step_row(lbl, ms, lo, hi):
+            if ms is not None:
+                c = C_LIDAR if ms < lo else '#ffaa00' if ms < hi else C_WARN
+                return (lbl, f'{ms:.0f} ms', c)
+            return (lbl, '—', C_DIM)
+
+        rows += [_step_row('pure delay',  delay_ms, 300,  600),
+                 _step_row('rise 0→90%',  rise_ms,  500,  900),
+                 ('', '', '')]
+
+        rows += [('TERRAIN', TERRAIN_NAMES.get(tid, f'T{tid}'), tc), ('', '', '')]
         if raw_cluster is not None:
             rows += [('CLUSTER raw',    str(raw_cluster),          '#ddddff'),
                      ('CLUSTER mapped', f'{mapped}  {cname}',      '#aaaaff')]
@@ -717,10 +1040,15 @@ def run_desktop(state: DebugState):
         rows += [('a[0] right', f'{a0:+.4f}', C_TEXT),
                  ('a[1] fwd',   f'{a1:+.4f}', C_TEXT),
                  ('|a| mag',    f'{mag:.4f}',  C_DIM)]
+        if sd and len(sd) >= 14:
+            ra0, ra1 = sd[12], sd[13]
+            rows += [('── RAW POLICY', '', '#555566'),
+                     ('raw a[0] right', f'{ra0:+.4f}', C_RAW_ACTION),
+                     ('raw a[1] fwd',   f'{ra1:+.4f}', C_RAW_ACTION),
+                     ('|raw a| mag',    f'{math.hypot(ra0, ra1):.4f}', C_DIM)]
         if spot_yaw is not None:
             rows += [('', '', ''), ('SPOT YAW', f'{math.degrees(spot_yaw):+.1f}°', C_HEADING)]
 
-        sd = snap.get('state_debug')
         if sd and len(sd) >= 12:
             rows += [('', '', ''),
                      ('── FRAME DEBUG', '', '#555566'),
@@ -732,7 +1060,6 @@ def run_desktop(state: DebugState):
                      ('cmd vx/vy  m/s',    f'{sd[10]:+.3f} / {sd[11]:+.3f}', '#ffaaff')]
         rows.append(('', '', ''))
 
-        rows.append(('', '', ''))
         if len(topk):
             rows.append(('TOP-K PTS', '(x right, y fwd) world', C_TOPK))
             ψ = spot_yaw if spot_yaw is not None else 0.0
@@ -752,16 +1079,70 @@ def run_desktop(state: DebugState):
                  ('Int slice',f"[{cfg['int_lower']:.0f}, {cfg['int_upper']:.0f}]",   C_CLOUD_SLICE_I),
                  ('Range',    f"[{cfg['min_range']:.1f}, {cfg['max_range']:.1f}] m", '#bbbbbb')]
 
-        y, dy = 0.97, 0.057
+        y, dy = 0.97, 0.050
         for lbl, val, clr in rows:
             if not lbl and not val:
                 y -= dy * 0.35; continue
             t1 = ax_info.text(0.04, y, lbl, transform=ax_info.transAxes,
-                              color=C_DIM, fontsize=8.5, va='top', fontweight='bold')
+                              color=C_DIM, fontsize=8, va='top', fontweight='bold')
             t2 = ax_info.text(0.96, y, val, transform=ax_info.transAxes,
-                              color=clr, fontsize=9.0, va='top', ha='right',
+                              color=clr, fontsize=8.5, va='top', ha='right',
                               fontfamily='monospace')
             H['texts'].extend([t1, t2]); y -= dy
+
+        # ── Velocity time-series plots ────────────────────────────────────────
+        if has_vel:
+            ln_cmd_vx.set_data(t_arr, cmd_vx)
+            ln_rep_vx.set_data(t_arr, rep_vx)
+            ln_cmd_vy.set_data(t_arr, cmd_vy)
+            ln_rep_vy.set_data(t_arr, rep_vy)
+
+            t_min, t_max = t_arr[0], t_arr[-1]
+            t_span = max(t_max - t_min, 1.0)
+            for _a, _cv, _rv, _base, _lag, _sr, _se in (
+                    (ax_vx, cmd_vx, rep_vx, 'vx', lag_vx, std_rep_vx, std_err_vx),
+                    (ax_vy, cmd_vy, rep_vy, 'vy', lag_vy, std_rep_vy, std_err_vy)):
+                _a.set_xlim(t_min, t_min + t_span)
+                all_vals = np.concatenate([_cv, _rv])
+                v_lo, v_hi = all_vals.min(), all_vals.max()
+                margin = max((v_hi - v_lo) * 0.15, 0.05)
+                _a.set_ylim(v_lo - margin, v_hi + margin)
+                lag_str = f'lag≈{_lag:.0f}ms' if _lag is not None else 'low signal'
+                c = (C_LIDAR if _lag is not None and _lag < 150
+                     else '#ffaa00' if _lag is not None and _lag < 400 else C_DIM)
+                var_str = (f'  σ_rep={_sr:.3f}  σ_err={_se:.3f}'
+                           if _sr is not None else '')
+                _a.set_title(f'{_base} (vision)   {lag_str}{var_str}',
+                             color=c, fontsize=8, pad=3)
+
+        # ── Per-cycle stacked charts ──────────────────────────────────────────
+        cycles = snap.get('cycle_metrics', [])
+        if cycles:
+            ct      = [c[0] for c in cycles]
+            delays  = [c[1] for c in cycles]
+            rises_t = [c[0] for c in cycles if c[2] is not None]
+            rises   = [c[2] for c in cycles if c[2] is not None]
+            x_lo, x_hi = min(ct) - 1.0, max(ct) + 1.0
+
+            ln_delay_cyc.set_data(ct, delays)
+            ax_delay.set_xlim(x_lo, x_hi)
+            d_margin = max(max(delays) * 0.15, 50.0)
+            ax_delay.set_ylim(max(0, min(delays) - d_margin), max(delays) + d_margin)
+            ax_delay.set_title(
+                f'pure delay  ({len(cycles)} cycles)',
+                color='#44aaff', fontsize=8, pad=2)
+
+            ln_rise_cyc.set_data(rises_t, rises)
+            ax_rise.set_xlim(x_lo, x_hi)
+            if rises:
+                r_margin = max(max(rises) * 0.15, 50.0)
+                ax_rise.set_ylim(max(0, min(rises) - r_margin), max(rises) + r_margin)
+            ax_rise.set_title(
+                f'rise 0→90%  ({len(rises)} of {len(cycles)} cycles)',
+                color='#00cc44', fontsize=8, pad=2)
+        else:
+            ln_delay_cyc.set_data([], [])
+            ln_rise_cyc.set_data([], [])
 
         fig.canvas.draw_idle()
 
@@ -831,6 +1212,8 @@ input.r{accent-color:var(--lidar)}
 .rsz-h:hover,.rsz-h.rsz-act{background:var(--act)}
 .rsz-v{height:5px;cursor:row-resize;background:var(--grid);flex-shrink:0;transition:background .15s}
 .rsz-v:hover,.rsz-v.rsz-act{background:var(--act)}
+#vel-area{background:var(--panel);border-top:1px solid var(--grid);padding:4px 10px;height:130px;flex-shrink:0;overflow:hidden;display:flex;align-items:stretch}
+#vcv{flex:1;display:block}
 </style>
 <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/build/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
@@ -849,6 +1232,17 @@ input.r{accent-color:var(--lidar)}
   </div>
   <div class="rsz-h" id="rsz2"></div>
   <div id="info">
+    <div style="font-size:9px;color:#555566;text-transform:uppercase;letter-spacing:.06em;margin:3px 0">── Latency ──</div>
+    <div class="row"><span class="k" style="color:#ff4466">cmd vx/vy m/s</span><span class="v" id="i-cvx" style="color:#ff4466">—</span></div>
+    <div class="row"><span class="k" style="color:#44aaff">rep vx/vy m/s</span><span class="v" id="i-rvx" style="color:#44aaff">—</span></div>
+    <div class="row"><span class="k" style="color:#ffaa44">err vx/vy m/s</span><span class="v" id="i-evx" style="color:#ffaa44">—</span></div>
+    <div class="row"><span class="k">xcorr lag vx</span><span class="v" id="i-lgvx">—</span></div>
+    <div class="row"><span class="k">xcorr lag vy</span><span class="v" id="i-lgvy">—</span></div>
+    <div class="row"><span class="k" style="color:#44aaff">σ_rep vx/vy</span><span class="v" id="i-srv" style="color:#44aaff">—</span></div>
+    <div class="row"><span class="k" style="color:#ffaa44">σ_err vx/vy</span><span class="v" id="i-sev" style="color:#ffaa44">—</span></div>
+    <div class="row"><span class="k">pure delay</span><span class="v" id="i-dly">—</span></div>
+    <div class="row"><span class="k">rise 0→90%</span><span class="v" id="i-rse">—</span></div>
+    <hr>
     <div class="row"><span class="k">TERRAIN</span><span class="v" id="i-ter">—</span></div>
     <hr>
     <div class="row"><span class="k">CLUSTER raw</span><span class="v" id="i-cr">—</span></div>
@@ -863,6 +1257,10 @@ input.r{accent-color:var(--lidar)}
     <div class="row"><span class="k">a[0] right</span><span class="v" id="i-a0">—</span></div>
     <div class="row"><span class="k">a[1] fwd</span><span class="v" id="i-a1">—</span></div>
     <div class="row"><span class="k">|a| mag</span><span class="v" id="i-mg">—</span></div>
+    <div style="font-size:9px;color:#555566;letter-spacing:.06em;margin:3px 0">── Raw Policy ──</div>
+    <div class="row"><span class="k" style="color:#ff9900">raw a[0] right</span><span class="v" id="i-ra0" style="color:#ff9900">—</span></div>
+    <div class="row"><span class="k" style="color:#ff9900">raw a[1] fwd</span><span class="v" id="i-ra1" style="color:#ff9900">—</span></div>
+    <div class="row"><span class="k">|raw a| mag</span><span class="v" id="i-rmg">—</span></div>
     <hr>
     <div class="row"><span class="k">SPOT YAW</span><span class="v" id="i-yw">—</span></div>
     <hr>
@@ -901,6 +1299,8 @@ input.r{accent-color:var(--lidar)}
   </div>
 </div>
 <div class="rsz-v" id="rsz4"></div>
+<div id="vel-area"><canvas id="vcv"></canvas></div>
+<div class="rsz-v" id="rsz5"></div>
 <div id="sliders">
   <h4>LIDAR FILTER  ·  publishes → /lidar_filter_config every 200 ms</h4>
   <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start">
@@ -977,6 +1377,144 @@ function toggleTheme(){
   if(lastData)draw(lastData);
 }
 const cv=document.getElementById('cv'), ctx=cv.getContext('2d');
+const vcv=document.getElementById('vcv'), vctx=vcv.getContext('2d');
+
+let _xcorrEma={vx:null,vy:null};
+const _XCORR_ALPHA=0.2;
+function _arrMean(a){return a.reduce((s,v)=>s+v,0)/a.length;}
+function _arrStd(a){const m=_arrMean(a);return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/a.length);}
+function _xcorrLagMs(times,cmd,rep){
+  const n=times.length;
+  if(n<20)return null;
+  const cs=_arrStd(cmd),rs=_arrStd(rep);
+  if(cs<0.02||rs<0.02)return null;
+  const dt=(times[n-1]-times[0])/(n-1);
+  const cm=_arrMean(cmd),rm=_arrMean(rep);
+  let best=-Infinity,bestLag=0;
+  for(let lag=0;lag<=Math.min(n-1,Math.round(3.0/dt));lag++){
+    let s=0;
+    for(let i=lag;i<n;i++) s+=(rep[i]-rm)*(cmd[i-lag]-cm);
+    if(s>best){best=s;bestLag=lag;}
+  }
+  return bestLag*dt*1000;
+}
+
+function _stdArr(arr){
+  if(arr.length<2)return 0;
+  const m=arr.reduce((a,b)=>a+b,0)/arr.length;
+  return Math.sqrt(arr.reduce((a,b)=>a+(b-m)**2,0)/arr.length);
+}
+function drawMiniChart(ctx2,x0,y0,w,h,times,cmdArr,repArr,title,lagOverride=undefined){
+  ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
+  ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.7;ctx2.strokeRect(x0,y0,w,h);
+  const pad={l:34,r:6,t:16,b:26};
+  const pw=w-pad.l-pad.r, ph=h-pad.t-pad.b;
+  if(pw<10||ph<10)return;
+  ctx2.fillStyle='#8b949e';ctx2.font='9px monospace';ctx2.textAlign='center';
+  ctx2.fillText(title,x0+w/2,y0+11);
+  const n=times.length;
+  if(n<2){ctx2.fillText('waiting...',x0+w/2,y0+h/2);return;}
+  const t0=times[0],tSpan=Math.max(times[n-1]-t0,1.0);
+  const allV=[...cmdArr,...repArr];
+  let vMin=Math.min(...allV),vMax=Math.max(...allV);
+  const mg=Math.max((vMax-vMin)*0.15,0.05);vMin-=mg;vMax+=mg;
+  const vSpan=vMax-vMin||1;
+  const tx=t=>x0+pad.l+(t-t0)/tSpan*pw;
+  const ty=v=>y0+pad.t+(1-(v-vMin)/vSpan)*ph;
+  // zero line
+  const zy=ty(0);
+  if(zy>y0+pad.t&&zy<y0+pad.t+ph){
+    ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.6;ctx2.setLineDash([3,4]);
+    ctx2.beginPath();ctx2.moveTo(x0+pad.l,zy);ctx2.lineTo(x0+pad.l+pw,zy);ctx2.stroke();
+    ctx2.setLineDash([]);
+  }
+  // y labels
+  ctx2.fillStyle='#8b949e';ctx2.font='8px monospace';ctx2.textAlign='right';
+  ctx2.fillText(vMax.toFixed(2),x0+pad.l-2,y0+pad.t+4);
+  ctx2.fillText(vMin.toFixed(2),x0+pad.l-2,y0+pad.t+ph);
+  if(zy>y0+pad.t+8&&zy<y0+pad.t+ph-4)ctx2.fillText('0',x0+pad.l-2,zy+3);
+  // lines
+  function line(arr,col){
+    if(!arr.length)return;
+    ctx2.strokeStyle=col;ctx2.lineWidth=1.5;ctx2.setLineDash([]);
+    ctx2.beginPath();
+    arr.forEach((v,i)=>{const px=tx(times[i]),py=ty(v);i===0?ctx2.moveTo(px,py):ctx2.lineTo(px,py);});
+    ctx2.stroke();
+  }
+  line(repArr,'#44aaff');line(cmdArr,'#ff4466');
+  // legend
+  ctx2.font='8px monospace';ctx2.textAlign='left';
+  ctx2.fillStyle='#ff4466';ctx2.fillText('cmd', x0+pad.l+2,y0+pad.t+10);
+  ctx2.fillStyle='#44aaff';ctx2.fillText('rep', x0+pad.l+28,y0+pad.t+10);
+  // lag estimate — use smoothed value if provided
+  const lag=lagOverride!==undefined?lagOverride:_xcorrLagMs(times,cmdArr,repArr);
+  ctx2.textAlign='center';ctx2.font='9px monospace';
+  if(lag!==null){
+    const c=lag<150?'#00cc44':lag<400?'#ffaa00':'#ff4444';
+    ctx2.fillStyle=c;
+    ctx2.fillText('lag≈'+lag.toFixed(0)+'ms',x0+w/2,y0+h-14);
+  }else{
+    ctx2.fillStyle='#8b949e';
+    ctx2.fillText('(need more signal)',x0+w/2,y0+h-14);
+  }
+  // variance row
+  if(cmdArr.length>=2){
+    const sRep=_stdArr(repArr);
+    const errArr=repArr.map((v,i)=>v-cmdArr[i]);
+    const sErr=_stdArr(errArr);
+    ctx2.font='8px monospace';ctx2.textAlign='left';
+    ctx2.fillStyle='#44aaff';ctx2.fillText('σ_rep='+sRep.toFixed(3),x0+pad.l+2,y0+h-3);
+    ctx2.fillStyle='#ffaa44';ctx2.fillText('σ_err='+sErr.toFixed(3),x0+pad.l+76,y0+h-3);
+  }
+}
+function _drawCycleHalf(ctx2,x0,y0,w,h,txFn,vals,color,title,countStr){
+  ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
+  ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.7;ctx2.strokeRect(x0,y0,w,h);
+  const padL=36,padT=14,padB=8,ph=h-padT-padB;
+  ctx2.font='8px monospace';ctx2.fillStyle=color;ctx2.textAlign='left';
+  ctx2.fillText(title,x0+padL+2,y0+11);
+  ctx2.fillStyle='#8b949e';ctx2.textAlign='right';
+  ctx2.fillText(countStr,x0+w-4,y0+11);
+  if(!vals.length){ctx2.textAlign='center';ctx2.fillText('waiting…',x0+w/2,y0+h/2);return;}
+  let vMin=Math.min(...vals),vMax=Math.max(...vals);
+  const mg=Math.max((vMax-vMin)*0.15,50);vMin=Math.max(0,vMin-mg);vMax+=mg;
+  const vSpan=vMax-vMin||1;
+  const ty=v=>y0+padT+(1-(v-vMin)/vSpan)*ph;
+  ctx2.font='7px monospace';ctx2.fillStyle='#8b949e';ctx2.textAlign='right';
+  ctx2.fillText(vMax.toFixed(0),x0+padL-2,y0+padT+4);
+  ctx2.fillText(vMin.toFixed(0),x0+padL-2,y0+padT+ph);
+  ctx2.strokeStyle=color;ctx2.lineWidth=1.5;ctx2.setLineDash([]);
+  ctx2.beginPath();
+  vals.forEach((v,i)=>{i===0?ctx2.moveTo(txFn(i),ty(v)):ctx2.lineTo(txFn(i),ty(v));});
+  ctx2.stroke();
+  vals.forEach((v,i)=>{ctx2.fillStyle=color;ctx2.beginPath();ctx2.arc(txFn(i),ty(v),3,0,2*Math.PI);ctx2.fill();});
+}
+function drawCycleChart(ctx2,x0,y0,w,h,cycles){
+  if(!cycles||!cycles.length){
+    ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
+    ctx2.fillStyle='#8b949e';ctx2.font='9px monospace';ctx2.textAlign='center';
+    ctx2.fillText('waiting for cycles…',x0+w/2,y0+h/2);return;
+  }
+  const gap=3,hTop=Math.floor((h-gap)/2),hBot=h-hTop-gap;
+  const n=cycles.length,pw=w-42;
+  const delays=cycles.map(c=>c[1]);
+  const risePairs=cycles.filter(c=>c[2]!=null);
+  const rises=risePairs.map(c=>c[2]);
+  const txD=i=>x0+36+(n>1?i/(n-1):0.5)*pw;
+  const txR=i=>{const ri=cycles.indexOf(risePairs[i]);return x0+36+(n>1?ri/(n-1):0.5)*pw;};
+  _drawCycleHalf(ctx2,x0,y0,w,hTop,txD,delays,'#44aaff','pure delay',n+' cyc');
+  _drawCycleHalf(ctx2,x0,y0+hTop+gap,w,hBot,txR,rises,'#00cc44','rise 0←90%',rises.length+'/'+n);
+}
+function drawVelChart(d){
+  const W=vcv.width,H=vcv.height;
+  if(W<20||H<20)return;
+  vctx.fillStyle=C.bg;vctx.fillRect(0,0,W,H);
+  const gap=4,third=Math.floor((W-gap*2)/3);
+  const times=d.vel_times||[];
+  drawMiniChart(vctx,0,0,third,H,times,d.cmd_vx_hist||[],d.rep_vx_hist||[],'vx (vision frame)',_xcorrEma.vx);
+  drawMiniChart(vctx,third+gap,0,third,H,times,d.cmd_vy_hist||[],d.rep_vy_hist||[],'vy (vision frame)',_xcorrEma.vy);
+  drawCycleChart(vctx,(third+gap)*2,0,W-(third+gap)*2,H,d.cycle_metrics||[]);
+}
 
 function setMode(m){
   useIntensity=(m==='i');
@@ -1073,11 +1611,18 @@ function draw(d){
     });
   }
 
-  // Layer 2: slice — Z=yellow, Intensity=magenta (body frame)
+  // Layer 2: slice — noise=red (density-fail), structure=slice color (density-pass)
   const slCol=useIntensity?C.sliceI:C.sliceZ;
-  if(d.cloud_slice&&d.cloud_slice.length){
+  if(d.cloud_slice_fail&&d.cloud_slice_fail.length){
+    ctx.fillStyle='#ff4444';ctx.globalAlpha=0.70;
+    d.cloud_slice_fail.forEach(([x,y])=>{
+      ctx.beginPath();ctx.arc(cx+x*sc,cy-y*sc,2.5,0,2*Math.PI);ctx.fill();
+    });
+    ctx.globalAlpha=1;
+  }
+  if(d.cloud_slice_pass&&d.cloud_slice_pass.length){
     ctx.fillStyle=slCol;ctx.globalAlpha=0.85;
-    d.cloud_slice.forEach(([x,y])=>{
+    d.cloud_slice_pass.forEach(([x,y])=>{
       ctx.beginPath();ctx.arc(cx+x*sc,cy-y*sc,2.5,0,2*Math.PI);ctx.fill();
     });
     ctx.globalAlpha=1;
@@ -1127,7 +1672,20 @@ function draw(d){
     drawArrow(d.bearing_rad-yawOff+Math.PI/2,sc,cx,cy,C.bear,3.5);
   }
 
-  // Action: atan2(fwd, right) already gives FWD=UP — no offset needed
+  // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
+  if(d.state_debug&&d.state_debug.length>=6){
+    const rvFwd=d.state_debug[4], rvRight=-d.state_debug[5];
+    const rvMag=Math.hypot(rvFwd,rvRight);
+    if(rvMag>0.02) drawArrow(Math.atan2(rvFwd,rvRight),sc,cx,cy,'#44aaff',3.0);
+  }
+
+  // Raw (unclipped) policy action unit vector: sd[12]=right, sd[13]=fwd
+  if(d.state_debug&&d.state_debug.length>=14){
+    const ra0=d.state_debug[12],ra1=d.state_debug[13];
+    const raMag=Math.hypot(ra0,ra1);
+    if(raMag>0.02) drawArrow(Math.atan2(ra1,ra0),sc,cx,cy,'#ff9900',3.0);
+  }
+  // Action (clipped): atan2(fwd, right) already gives FWD=UP — no offset needed
   if(d.has_action){
     const[a0,a1]=d.action,mag=Math.hypot(a0,a1);
     if(mag>0.02) drawArrow(Math.atan2(a1,a0),sc,cx,cy,C.act,4.5);
@@ -1147,15 +1705,17 @@ function draw(d){
     [slCol2,           slLbl],
     [C.lidar,          'Lidar beams'],
     [C.topk,           'Top-K inputs'],
+    [C.act,            'Action (clipped, unit vec)'],
+    ['#ff9900',        'Raw policy (unclipped, unit vec)'],
+    ['#44aaff',        'Reported vel (unit vec)'],
     [C.bear,           'Plan bearing'],
     [C.head,           'Spot heading'],
-    [C.act,            'Action'],
   ];
   const lx=8,ly=22,lh=16,dotR=5;
   ctx.save();
   ctx.globalAlpha=0.82;
   ctx.fillStyle=C.bg;
-  ctx.fillRect(lx-4,ly-14,130,items.length*lh+6);
+  ctx.fillRect(lx-4,ly-14,160,items.length*lh+6);
   ctx.globalAlpha=1;
   ctx.font='10px monospace';ctx.textAlign='left';
   items.forEach(([col,lbl],i)=>{
@@ -1194,12 +1754,18 @@ function initThree(){
     new THREE.PointsMaterial({size:0.06,color:0x3a3a5a,transparent:true,opacity:0.7})
   );
   _t3.scene.add(_t3.ptsMesh);
-  // In-slice cloud (bright)
+  // In-slice cloud — structure (density-pass, bright)
   _t3.sliceMesh=new THREE.Points(
     new THREE.BufferGeometry(),
     new THREE.PointsMaterial({size:0.10,color:0xffcc00})
   );
   _t3.scene.add(_t3.sliceMesh);
+  // In-slice cloud — noise (density-fail, red)
+  _t3.noiseMesh=new THREE.Points(
+    new THREE.BufferGeometry(),
+    new THREE.PointsMaterial({size:0.10,color:0xff4444})
+  );
+  _t3.scene.add(_t3.noiseMesh);
   // Slice planes
   const plGeo=new THREE.PlaneGeometry(16,16);
   const plMat=()=>new THREE.MeshBasicMaterial({color:0xffcc00,transparent:true,opacity:0.07,side:THREE.DoubleSide});
@@ -1229,14 +1795,20 @@ function updateThree(d){
   for(let i=0;i<pts.length;i++){const[tx,ty,tz]=toW3(pts[i][0],pts[i][1],pts[i][2]);posA[i*3]=tx;posA[i*3+1]=ty;posA[i*3+2]=tz;}
   _t3.ptsMesh.geometry.setAttribute('position',new THREE.BufferAttribute(posA,3));
   _t3.ptsMesh.geometry.computeBoundingSphere();
-  // In-slice points
-  const sl=pts.filter(p=>p[2]>=zLo&&p[2]<=zHi);
-  if(sl.length){
-    const posS=new Float32Array(sl.length*3);
-    for(let i=0;i<sl.length;i++){const[tx,ty,tz]=toW3(sl[i][0],sl[i][1],sl[i][2]);posS[i*3]=tx;posS[i*3+1]=ty;posS[i*3+2]=tz;}
-    _t3.sliceMesh.geometry.setAttribute('position',new THREE.BufferAttribute(posS,3));
-    _t3.sliceMesh.geometry.computeBoundingSphere();
+  // Structure points (density-pass) — slice color
+  function fillMesh(mesh,arr){
+    if(!mesh)return;
+    if(arr&&arr.length){
+      const pos=new Float32Array(arr.length*3);
+      for(let i=0;i<arr.length;i++){const[tx,ty,tz]=toW3(arr[i][0],arr[i][1],arr[i][2]);pos[i*3]=tx;pos[i*3+1]=ty;pos[i*3+2]=tz;}
+      mesh.geometry.setAttribute('position',new THREE.BufferAttribute(pos,3));
+      mesh.geometry.computeBoundingSphere();
+    } else {
+      mesh.geometry.setAttribute('position',new THREE.BufferAttribute(new Float32Array(0),3));
+    }
   }
+  fillMesh(_t3.sliceMesh,d.cloud_3d_pass);
+  fillMesh(_t3.noiseMesh,d.cloud_3d_fail);
 }
 
 function resizeThree(){
@@ -1251,6 +1823,47 @@ function resizeThree(){
 
 function $t(id,v,c){const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;}
 function panel(d){
+  // ── Latency section ──
+  if(d.state_debug&&d.state_debug.length>=12){
+    const sd=d.state_debug;
+    const f3=v=>(v>=0?'+':'')+v.toFixed(3);
+    const cvx=sd[10],cvy=sd[11],rvx=sd[2],rvy=sd[3];
+    $t('i-cvx',f3(cvx)+' / '+f3(cvy));
+    $t('i-rvx',f3(rvx)+' / '+f3(rvy));
+    const evx=cvx-rvx,evy=cvy-rvy;
+    $t('i-evx',f3(evx)+' / '+f3(evy));
+  }
+  const vt=d.vel_times||[],cvxH=d.cmd_vx_hist||[],rvxH=d.rep_vx_hist||[];
+  const cvyH=d.cmd_vy_hist||[],rvyH=d.rep_vy_hist||[];
+  function showLag(elId,cmd,rep,eKey){
+    const raw=_xcorrLagMs(vt,cmd,rep);
+    if(raw!==null) _xcorrEma[eKey]=_xcorrEma[eKey]===null?raw:(1-_XCORR_ALPHA)*_xcorrEma[eKey]+_XCORR_ALPHA*raw;
+    const lag=_xcorrEma[eKey];
+    const el=document.getElementById(elId);
+    if(!el)return;
+    if(lag!==null){
+      const c=lag<150?'#00cc44':lag<400?'#ffaa00':'#ff4444';
+      el.textContent=lag.toFixed(0)+' ms';el.style.color=c;
+    }else{el.textContent='low signal';el.style.color='#8b949e';}
+  }
+  showLag('i-lgvx',cvxH,rvxH,'vx');
+  showLag('i-lgvy',cvyH,rvyH,'vy');
+  if(cvxH.length>=2){
+    const sRepVx=_stdArr(rvxH),sRepVy=_stdArr(rvyH);
+    const sErrVx=_stdArr(rvxH.map((v,i)=>v-cvxH[i]));
+    const sErrVy=_stdArr(rvyH.map((v,i)=>v-cvyH[i]));
+    $t('i-srv',sRepVx.toFixed(3)+' / '+sRepVy.toFixed(3));
+    $t('i-sev',sErrVx.toFixed(3)+' / '+sErrVy.toFixed(3));
+  }
+  function showStep(elId,ms,lo,hi){
+    const el=document.getElementById(elId);if(!el)return;
+    if(ms!=null){
+      const c=ms<lo?'#00cc44':ms<hi?'#ffaa00':'#ff4444';
+      el.textContent=ms.toFixed(0)+' ms';el.style.color=c;
+    }else{el.textContent='—';el.style.color='#8b949e';}
+  }
+  showStep('i-dly',d.step_delay_ms??null,300,600);
+  showStep('i-rse',d.step_rise_ms??null,500,900);
   const tid=d.terrain_id;
   $t('i-ter',TN[tid]||'T'+tid,TC[tid]||'#fff');
   const raw=d.raw_cluster;
@@ -1283,6 +1896,12 @@ function panel(d){
     $t('i-dbsp',f3(sd[6])+' / '+f3(sd[7]));
     $t('i-dbsv',f4(sd[8])+' / '+f4(sd[9]));
     $t('i-dbcv',f3(sd[10])+' / '+f3(sd[11]));
+    if(sd.length>=14){
+      const ra0=sd[12],ra1=sd[13];
+      $t('i-ra0',(ra0>=0?'+':'')+ra0.toFixed(4));
+      $t('i-ra1',(ra1>=0?'+':'')+ra1.toFixed(4));
+      $t('i-rmg',Math.hypot(ra0,ra1).toFixed(4));
+    }
   }
   const topkEl=document.getElementById('i-topk');
   if(topkEl){
@@ -1323,7 +1942,7 @@ async function loop(){
   while(true){
     try{
       const r=await fetch('/api/state');
-      if(r.ok){const d=await r.json();lastData=d;draw(d);panel(d);updateThree(d);
+      if(r.ok){const d=await r.json();lastData=d;draw(d);panel(d);updateThree(d);drawVelChart(d);
                badge.textContent='live';badge.className='live';}
     }catch(e){badge.textContent='disconnected';badge.className='';}
     await new Promise(r=>setTimeout(r,80));
@@ -1334,6 +1953,8 @@ function resize(){
   const s=Math.min(w.clientWidth-12,w.clientHeight-12,700);
   cv.width=s;cv.height=s;if(lastData)draw(lastData);
   resizeThree();
+  const va=document.getElementById('vel-area');
+  if(va){vcv.width=va.clientWidth-20;vcv.height=va.clientHeight-8;if(lastData)drawVelChart(lastData);}
 }
 function initSliders(cfg){
   if(!cfg)return;
@@ -1375,7 +1996,8 @@ function makeSplitter(el,a,b,axis){
 makeSplitter(document.getElementById('rsz1'),document.getElementById('cw'),document.getElementById('elev-wrap'),'h');
 makeSplitter(document.getElementById('rsz2'),document.getElementById('elev-wrap'),document.getElementById('info'),'h');
 makeSplitter(document.getElementById('rsz3'),document.querySelector('main'),document.getElementById('cameras'),'v');
-makeSplitter(document.getElementById('rsz4'),document.getElementById('cameras'),document.getElementById('sliders'),'v');
+makeSplitter(document.getElementById('rsz4'),document.getElementById('cameras'),document.getElementById('vel-area'),'v');
+makeSplitter(document.getElementById('rsz5'),document.getElementById('vel-area'),document.getElementById('sliders'),'v');
 window.addEventListener('resize',resize);
 fetch('/api/state').then(r=>r.json()).then(d=>{initSliders(d.filter_cfg);resize();loop();}).catch(()=>{resize();loop();});
 </script>
@@ -1401,21 +2023,46 @@ def run_web(state: DebugState, port=WEB_PORT):
         a0, a1 = float(snap['action'][0]), float(snap['action'][1])
         current_step, bearing_rad = _bearing_for_step(snap)
 
-        cloud_all, cloud_slice, cloud_3d = [], [], []
-        rc = snap.get('raw_cloud')
+        cloud_all = []
+        cloud_slice_pass, cloud_slice_fail = [], []
+        cloud_3d, cloud_3d_pass, cloud_3d_fail = [], [], []
+        rc  = snap.get('raw_cloud')
+        cfg_s = snap['filter_cfg']
         if rc is not None and len(rc):
             # _apply_slice_filter returns x already negated for upside-down correction;
             # web JS uses cx+x*sc (no additional negation)
-            all_xy, slice_xy = _apply_slice_filter(rc, snap['filter_cfg'])
+            all_xy, slice_xy = _apply_slice_filter(rc, cfg_s)
             if all_xy is not None and len(all_xy):
                 stride = max(1, len(all_xy) // 600)
                 cloud_all = all_xy[::stride].tolist()
             if slice_xy is not None and len(slice_xy):
-                stride = max(1, len(slice_xy) // 300)
-                cloud_slice = slice_xy[::stride].tolist()
-            stride_3d  = max(1, len(rc) // 400)
-            pts_3d     = rc[::stride_3d]
-            cloud_3d   = pts_3d[:, :3].tolist()
+                pm = _apply_density_filter(slice_xy,
+                                           cfg_s['density_radius'],
+                                           cfg_s['min_neighbors'])
+                for pts_sub, dest in [(slice_xy[pm], cloud_slice_pass),
+                                      (slice_xy[~pm], cloud_slice_fail)]:
+                    if len(pts_sub):
+                        s = max(1, len(pts_sub) // 300)
+                        dest.extend(pts_sub[::s].tolist())
+
+            # 3D: density-classify on pre-stride cloud, then stride for transfer
+            z_all_w = rc[:, 2]
+            ib_all  = (z_all_w >= cfg_s['z_lower']) & (z_all_w <= cfg_s['z_upper'])
+            dp3     = np.zeros(len(rc), dtype=bool)
+            if np.any(ib_all):
+                pm3 = _apply_density_filter(rc[ib_all, :2],
+                                            cfg_s['density_radius'],
+                                            cfg_s['min_neighbors'])
+                dp3[np.where(ib_all)[0][pm3]] = True
+            df3 = ib_all & ~dp3
+
+            stride_3d = max(1, len(rc) // 400)
+            cloud_3d  = rc[::stride_3d, :3].tolist()
+            for pts_sub, dest, cap in [(rc[dp3], cloud_3d_pass, 200),
+                                       (rc[df3], cloud_3d_fail, 100)]:
+                if len(pts_sub):
+                    s = max(1, len(pts_sub) // cap)
+                    dest.extend(pts_sub[::s, :3].tolist())
 
         return jsonify(dict(
             action           = [a0, a1],
@@ -1429,10 +2076,21 @@ def run_web(state: DebugState, port=WEB_PORT):
             processed_ranges = snap['processed_ranges'].tolist()
                                if snap['processed_ranges'] is not None else None,
             cloud_all        = cloud_all,
-            cloud_slice      = cloud_slice,
+            cloud_slice_pass = cloud_slice_pass,
+            cloud_slice_fail = cloud_slice_fail,
             cloud_3d         = cloud_3d,
+            cloud_3d_pass    = cloud_3d_pass,
+            cloud_3d_fail    = cloud_3d_fail,
             filter_cfg       = snap['filter_cfg'],
             state_debug      = snap.get('state_debug'),
+            vel_times        = snap.get('vel_times', []),
+            cmd_vx_hist      = snap.get('cmd_vx_hist', []),
+            cmd_vy_hist      = snap.get('cmd_vy_hist', []),
+            rep_vx_hist      = snap.get('rep_vx_hist', []),
+            rep_vy_hist      = snap.get('rep_vy_hist', []),
+            step_delay_ms    = snap.get('step_delay_ms'),
+            step_rise_ms     = snap.get('step_rise_ms'),
+            cycle_metrics    = snap.get('cycle_metrics', []),
         ))
 
     # Build a "no signal" placeholder JPEG once at startup

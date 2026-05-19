@@ -28,6 +28,7 @@ import os
 import json
 import math
 import threading
+import time as _time
 from collections import deque
 
 import numpy as np
@@ -61,7 +62,8 @@ RAW_TO_MAPPED = {
     **{k: 0 for k in [0, 1]},
 }
 
-HISTORY_LEN = 25
+HISTORY_LEN  = 25
+VEL_HIST_LEN = 300   # ~30 s at 100 ms update rate (fits 3+ cycles of 4 s half-period step test)
 
 
 # ── Shared state ───────────────────────────────────────────────────────────────
@@ -80,6 +82,13 @@ class DebugState:
         self.lidar_all     = None  # (n_rays, 2) hit positions relative to agent
         self.lidar_topk    = None  # (top_k, 2) closest hits sent to policy
         self.state_debug   = None  # 12-float transform debug from /dgppo_state_debug
+        # velocity time-series (cmd vs reported, vision frame)
+        self._vel_t0    = None
+        self.vel_times   = deque(maxlen=VEL_HIST_LEN)
+        self.cmd_vx_hist = deque(maxlen=VEL_HIST_LEN)
+        self.cmd_vy_hist = deque(maxlen=VEL_HIST_LEN)
+        self.rep_vx_hist = deque(maxlen=VEL_HIST_LEN)
+        self.rep_vy_hist = deque(maxlen=VEL_HIST_LEN)
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -105,6 +114,14 @@ class DebugState:
     def set_state_debug(self, data):
         with self._lock:
             self.state_debug = data
+            now = _time.time()
+            if self._vel_t0 is None:
+                self._vel_t0 = now
+            self.vel_times.append(now - self._vel_t0)
+            self.cmd_vx_hist.append(data[10])
+            self.cmd_vy_hist.append(data[11])
+            self.rep_vx_hist.append(data[2])
+            self.rep_vy_hist.append(data[3])
 
     def set_lidar(self, all_hits, topk_hits):
         with self._lock:
@@ -125,6 +142,11 @@ class DebugState:
                 lidar_all    = self.lidar_all,
                 lidar_topk   = self.lidar_topk,
                 state_debug  = self.state_debug,
+                vel_times    = list(self.vel_times),
+                cmd_vx_hist  = list(self.cmd_vx_hist),
+                cmd_vy_hist  = list(self.cmd_vy_hist),
+                rep_vx_hist  = list(self.rep_vx_hist),
+                rep_vy_hist  = list(self.rep_vy_hist),
             )
 
 
@@ -185,6 +207,19 @@ def ros_thread(state: DebugState):
         rclpy.shutdown()
 
 
+def _estimate_lag_ms(t_arr, cmd, rep):
+    """Cross-correlation lag estimate (cmd → reported) in milliseconds.
+    Returns None when signal variance is too low for a reliable estimate.
+    Positive result means reported lags behind cmd (expected for any physical system)."""
+    if len(t_arr) < 20 or cmd.std() < 0.02 or rep.std() < 0.02:
+        return None
+    dt = float(np.mean(np.diff(t_arr)))
+    cc = np.correlate(rep - rep.mean(), cmd - cmd.mean(), mode='full')
+    lags = np.arange(-(len(cmd) - 1), len(cmd))
+    lag_s = float(lags[int(np.argmax(cc))]) * dt
+    return lag_s * 1000.0 if 0.0 <= lag_s <= 3.0 else None
+
+
 # ── Matplotlib visualizer ──────────────────────────────────────────────────────
 
 BG_DARK  = '#1a1a2e'
@@ -195,11 +230,11 @@ WHITE    = '#e0e0e0'
 
 
 def build_figure():
-    fig = plt.figure(figsize=(12, 7), facecolor=BG_DARK)
-    fig.suptitle('DGPPO Policy Debugger', color=WHITE, fontsize=13, y=0.97)
+    fig = plt.figure(figsize=(14, 8), facecolor=BG_DARK)
+    fig.suptitle('DGPPO Policy Debugger', color=WHITE, fontsize=13, y=0.98)
 
-    # Left: arrow plot
-    ax = fig.add_axes([0.05, 0.08, 0.55, 0.84])
+    # Top-left: arrow plot (shrunk vertically to make room for vel plots below)
+    ax = fig.add_axes([0.04, 0.40, 0.50, 0.55])
     ax.set_facecolor(BG_MID)
     ax.set_xlim(-1.3, 1.3)
     ax.set_ylim(-1.3, 1.3)
@@ -210,18 +245,15 @@ def build_figure():
         s.set_color('#333333')
     ax.tick_params(colors=GRAY, labelsize=7)
 
-    # unit circle reference
     th = np.linspace(0, 2 * np.pi, 200)
     ax.plot(np.cos(th), np.sin(th), color='#333333', lw=1, ls='--')
 
-    # axis labels (cart frame: up=forward, right=right)
-    ax.text( 1.15,  0.0,  'right\n(+x)',    color='#555', fontsize=7, ha='center', va='center')
-    ax.text(-1.15,  0.0,  'left\n(-x)',     color='#555', fontsize=7, ha='center', va='center')
+    ax.text( 1.15,  0.0,  'right\n(+x)',   color='#555', fontsize=7, ha='center', va='center')
+    ax.text(-1.15,  0.0,  'left\n(-x)',    color='#555', fontsize=7, ha='center', va='center')
     ax.text( 0.0,   1.15, 'forward\n(+y)', color='#555', fontsize=7, ha='center', va='center')
     ax.text( 0.0,  -1.15, 'back\n(-y)',    color='#555', fontsize=7, ha='center', va='center')
     ax.set_title('Policy velocity command  (ground plane)', color=WHITE, fontsize=10, pad=6)
 
-    # legend patches
     leg = [
         mpatches.Patch(color='#00e676', label='action (policy)'),
         mpatches.Patch(color='#ffcc00', label='plan bearing'),
@@ -232,17 +264,58 @@ def build_figure():
     ax.legend(handles=leg, loc='lower right', facecolor=BG_MID, edgecolor=GRAY,
               labelcolor=WHITE, fontsize=8)
 
+    # Bottom-left: vx over time (cmd vs reported, vision frame)
+    ax_vx = fig.add_axes([0.04, 0.06, 0.23, 0.30])
+    ax_vx.set_facecolor(BG_MID)
+    ax_vx.set_title('vx  (vision frame)', color=WHITE, fontsize=9, pad=4)
+    ax_vx.set_xlabel('time  s', color=GRAY, fontsize=7)
+    ax_vx.set_ylabel('m/s', color=GRAY, fontsize=7)
+    ax_vx.tick_params(colors=GRAY, labelsize=7)
+    ax_vx.axhline(0, color=GRAY, lw=0.6, ls='--')
+    for s in ax_vx.spines.values():
+        s.set_color('#333333')
+    vx_leg = [
+        mpatches.Patch(color='#ff4466', label='cmd'),
+        mpatches.Patch(color='#44aaff', label='reported'),
+    ]
+    ax_vx.legend(handles=vx_leg, loc='upper left', facecolor=BG_MID, edgecolor=GRAY,
+                 labelcolor=WHITE, fontsize=7)
+
+    # Bottom-center-left: vy over time
+    ax_vy = fig.add_axes([0.29, 0.06, 0.23, 0.30])
+    ax_vy.set_facecolor(BG_MID)
+    ax_vy.set_title('vy  (vision frame)', color=WHITE, fontsize=9, pad=4)
+    ax_vy.set_xlabel('time  s', color=GRAY, fontsize=7)
+    ax_vy.set_ylabel('m/s', color=GRAY, fontsize=7)
+    ax_vy.tick_params(colors=GRAY, labelsize=7)
+    ax_vy.axhline(0, color=GRAY, lw=0.6, ls='--')
+    for s in ax_vy.spines.values():
+        s.set_color('#333333')
+    vy_leg = [
+        mpatches.Patch(color='#ff4466', label='cmd'),
+        mpatches.Patch(color='#44aaff', label='reported'),
+    ]
+    ax_vy.legend(handles=vy_leg, loc='upper left', facecolor=BG_MID, edgecolor=GRAY,
+                 labelcolor=WHITE, fontsize=7)
+
     # Right: info panel
-    ax_info = fig.add_axes([0.63, 0.08, 0.34, 0.84])
+    ax_info = fig.add_axes([0.56, 0.06, 0.41, 0.88])
     ax_info.set_facecolor(BG_PANEL)
     ax_info.axis('off')
 
-    return fig, ax, ax_info
+    return fig, ax, ax_vx, ax_vy, ax_info
 
 
 def run_visualizer(state: DebugState):
-    fig, ax, ax_info = build_figure()
+    fig, ax, ax_vx, ax_vy, ax_info = build_figure()
     history = deque(maxlen=HISTORY_LEN)
+
+    # velocity plot line handles — created once, updated each frame
+    _empty: list = []
+    ln_cmd_vx,  = ax_vx.plot(_empty, _empty, color='#ff4466', lw=1.5, label='cmd')
+    ln_rep_vx,  = ax_vx.plot(_empty, _empty, color='#44aaff', lw=1.5, label='reported')
+    ln_cmd_vy,  = ax_vy.plot(_empty, _empty, color='#ff4466', lw=1.5, label='cmd')
+    ln_rep_vy,  = ax_vy.plot(_empty, _empty, color='#44aaff', lw=1.5, label='reported')
 
     # mutable handles so we can remove/redraw each frame
     handles = {'arrow': None, 'bearing': None, 'imu': None, 'trail': [], 'texts': [], 'speed_ring': None, 'lidar': []}
@@ -459,6 +532,36 @@ def run_visualizer(state: DebugState):
                                fontfamily='monospace')
             texts.extend([t1, t2])
             y -= dy
+
+        # ── Velocity time-series plots ────────────────────────────────────────
+        t_arr = np.array(snap.get('vel_times', []))
+        if len(t_arr) >= 2:
+            cmd_vx = np.array(snap['cmd_vx_hist'])
+            rep_vx = np.array(snap['rep_vx_hist'])
+            cmd_vy = np.array(snap['cmd_vy_hist'])
+            rep_vy = np.array(snap['rep_vy_hist'])
+
+            ln_cmd_vx.set_data(t_arr, cmd_vx)
+            ln_rep_vx.set_data(t_arr, rep_vx)
+            ln_cmd_vy.set_data(t_arr, cmd_vy)
+            ln_rep_vy.set_data(t_arr, rep_vy)
+
+            t_min, t_max = t_arr[0], t_arr[-1]
+            t_span = max(t_max - t_min, 1.0)
+            for _ax, _cv, _rv, _base in (
+                    (ax_vx, cmd_vx, rep_vx, 'vx  (vision frame)'),
+                    (ax_vy, cmd_vy, rep_vy, 'vy  (vision frame)')):
+                _ax.set_xlim(t_min, t_min + t_span)
+                all_vals = np.concatenate([_cv, _rv])
+                v_lo, v_hi = all_vals.min(), all_vals.max()
+                margin = max((v_hi - v_lo) * 0.15, 0.05)
+                _ax.set_ylim(v_lo - margin, v_hi + margin)
+                lag = _estimate_lag_ms(t_arr, _cv, _rv)
+                if lag is not None:
+                    c = '#00cc44' if lag < 150 else '#ffaa00' if lag < 400 else '#ff4444'
+                    _ax.set_title(f'{_base}   lag ≈ {lag:.0f} ms', color=c, fontsize=9, pad=4)
+                else:
+                    _ax.set_title(f'{_base}   (need more signal)', color=GRAY, fontsize=9, pad=4)
 
         fig.canvas.draw_idle()
 
