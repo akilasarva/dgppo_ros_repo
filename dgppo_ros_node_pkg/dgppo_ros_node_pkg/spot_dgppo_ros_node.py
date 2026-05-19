@@ -652,6 +652,16 @@ class DGPPOROSNode(Node):
         # Spot +X = Sim +Y: body→world heading offset is π/2, plus robot yaw.
         # Training lidar is world-frame (no agent yaw in training dirs).
         ranges_res = np.interp(np.mod(np.pi / 2 + yaw - angles_beam, 2 * np.pi), angles_phys, scaled_ranges)
+        # LIDAR ROTATION VERIFY: min-range beam index and angle tell you where the nearest obstacle
+        # is in the sim world frame. At yaw≈0: idx≈24 (angle≈π/2) = ahead; idx≈16 (angle≈0) = right;
+        # idx≈0/32 (angle≈±π) = left. Log this to verify CW/CCW convention is correct.
+        _min_idx = int(np.argmin(ranges_res))
+        self.get_logger().info(
+            f'[LIDAR] min_range={ranges_res[_min_idx]:.2f}sim  '
+            f'beam_idx={_min_idx}/32  angle_deg={math.degrees(angles_beam[_min_idx]):.0f}°  '
+            f'(0°=right  90°=fwd  ±180°=left)',
+            throttle_duration_sec=1.0,
+        )
         # angles_beam are sim world angles; hits are world-frame positions.
         obs_hits = np.stack([
             agent_pos_2d[0] + ranges_res * np.cos(angles_beam),
