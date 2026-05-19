@@ -56,6 +56,9 @@ class DGPPOROSNode(Node):
         self.declare_parameter('step_test', False)       # repeating square wave: 0→0.4→0 m/s, 4 s half-period
         self.declare_parameter('step_test_once', False)  # single step: 0→0.4 m/s, holds until disabled
         self._step_test_t0 = None  # set on first step-test tick
+        self.declare_parameter('spoof_action', False)    # bypass policy; use fixed action below
+        self.declare_parameter('spoof_action_x', 0.0)   # sim-X component [-1,1]: +X = Spot LEFT
+        self.declare_parameter('spoof_action_y', 0.0)   # sim-Y component [-1,1]: +Y = Spot FORWARD
         self.num_clusters = 4
         self.twod_area_size = 1.5
 
@@ -499,6 +502,11 @@ class DGPPOROSNode(Node):
         self.get_logger().info(f"inference {_inf_ms:.1f} ms", throttle_duration_sec=1.0)
 
         self.rnn_state = new_rnn_state
+        if self.get_parameter('spoof_action').get_parameter_value().bool_value:
+            sx = self.get_parameter('spoof_action_x').get_parameter_value().double_value
+            sy = self.get_parameter('spoof_action_y').get_parameter_value().double_value
+            action = jnp.array([[sx, sy]], dtype=jnp.float32)
+            self.get_logger().info(f'[SPOOF] action x={sx:.3f}  y={sy:.3f}', throttle_duration_sec=0.5)
         action = self.clip_action(action)
         action_flat = [float(a) for a in np.array(action).flatten()]
         self._tick_record['action'] = action_flat

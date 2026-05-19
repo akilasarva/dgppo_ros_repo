@@ -598,8 +598,10 @@ def _build_figure():
         mpatches.Patch(color=C_BEARING,       label='plan bearing  (0=FWD=UP)'),
         mpatches.Patch(color=C_HEADING,       label='spot heading  (0=FWD=UP)'),
     ]
-    ax.legend(handles=leg, loc='lower right', facecolor=C_BG,
-              edgecolor=C_GRID, labelcolor=C_TEXT, fontsize=7.5)
+    ax.legend(handles=leg, loc='upper left',
+              bbox_to_anchor=(0.0, -0.01), bbox_transform=ax.transAxes,
+              facecolor=C_BG, edgecolor=C_GRID, labelcolor=C_TEXT,
+              fontsize=6.5, ncols=3)
 
     if _HAS_3D:
         ax3d = fig.add_axes([0.42, 0.36, 0.24, 0.60], projection='3d')
