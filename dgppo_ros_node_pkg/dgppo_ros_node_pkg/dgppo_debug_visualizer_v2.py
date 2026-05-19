@@ -1455,13 +1455,6 @@ function drawCycleChart(ctx2,x0,y0,w,h,cycles){
   _drawCycleHalf(ctx2,x0,y0,w,hTop,txD,delays,'#44aaff','pure delay',n+' cyc');
   _drawCycleHalf(ctx2,x0,y0+hTop+gap,w,hBot,txR,rises,'#00cc44','rise 0←90%',rises.length+'/'+n);
 }
-  // legend + cycle count
-  ctx2.font='8px monospace';ctx2.textAlign='left';
-  ctx2.fillStyle='#44aaff';ctx2.fillText('delay',x0+pad.l+2,y0+pad.t+10);
-  ctx2.fillStyle='#00cc44';ctx2.fillText('rise',x0+pad.l+36,y0+pad.t+10);
-  ctx2.textAlign='center';ctx2.fillStyle='#8b949e';
-  ctx2.fillText(n+' cycle'+(n===1?'':'s'),x0+w/2,y0+h-4);
-}
 function drawVelChart(d){
   const W=vcv.width,H=vcv.height;
   if(W<20||H<20)return;
