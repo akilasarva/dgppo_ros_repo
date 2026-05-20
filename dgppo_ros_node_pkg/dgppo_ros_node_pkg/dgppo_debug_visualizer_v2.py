@@ -998,8 +998,23 @@ def run_desktop(state: DebugState):
         cname = CLUSTER_NAMES.get(mapped, f'cls_{mapped}') if mapped is not None else '—'
         sd    = snap.get('state_debug')
 
-        # Latency section — top of panel, most important for step tests
-        rows = [('── LATENCY ──', '', '#555566')]
+        # ── Sim delay summary — three numbers for feeding into the simulator ──
+        avg_in_ms    = float(inf_hist.mean()) if len(inf_hist) >= 2 else None
+        avg_out_ms   = lag_vx                                          # xcorr EMA, always live
+        avg_total_ms = (avg_in_ms + avg_out_ms
+                        if avg_in_ms is not None and avg_out_ms is not None else None)
+
+        def _sim_row(lbl, ms):
+            if ms is not None:
+                return (lbl, f'{ms:.0f} ms', '#ffffff')
+            return (lbl, 'low signal', C_DIM)
+
+        rows = [('── SIM DELAY PARAMS ──', '', '#aaaaff'),
+                _sim_row('  in  (DGPPO inference)', avg_in_ms),
+                _sim_row('  out (Spot response)',   avg_out_ms),
+                _sim_row('  total (in + out)',       avg_total_ms),
+                ('', '', ''),
+                ('── LATENCY ──', '', '#555566')]
         if sd and len(sd) >= 12:
             cvx, cvy = sd[10], sd[11]
             rvx, rvy = sd[2],  sd[3]
@@ -1275,6 +1290,11 @@ input.r{accent-color:var(--lidar)}
   </div>
   <div class="rsz-h" id="rsz2"></div>
   <div id="info">
+    <div style="font-size:9px;color:#aaaaff;text-transform:uppercase;letter-spacing:.06em;margin:3px 0">── Sim Delay Params ──</div>
+    <div class="row"><span class="k">in  (DGPPO inference)</span><span class="v" id="i-sim-in" style="color:#fff">—</span></div>
+    <div class="row"><span class="k">out (Spot response)</span><span class="v" id="i-sim-out" style="color:#fff">—</span></div>
+    <div class="row"><span class="k">total (in + out)</span><span class="v" id="i-sim-tot" style="color:#fff">—</span></div>
+    <hr>
     <div style="font-size:9px;color:#555566;text-transform:uppercase;letter-spacing:.06em;margin:3px 0">── Latency ──</div>
     <div class="row"><span class="k" style="color:#ff4466">cmd vx/vy m/s</span><span class="v" id="i-cvx" style="color:#ff4466">—</span></div>
     <div class="row"><span class="k" style="color:#44aaff">rep vx/vy m/s</span><span class="v" id="i-rvx" style="color:#44aaff">—</span></div>
@@ -1900,6 +1920,16 @@ function resizeThree(){
 
 function $t(id,v,c){const e=document.getElementById(id);if(!e)return;e.textContent=v;if(c)e.style.color=c;}
 function panel(d){
+  // ── Sim delay summary ──
+  const ih=d.inf_ms_hist||[];
+  const avgIn=ih.length>=2?ih.reduce((a,b)=>a+b,0)/ih.length:null;
+  const avgOut=_xcorrEma.vx;
+  function fmsSim(ms){return ms!==null?ms.toFixed(0)+' ms':'low signal';}
+  $t('i-sim-in', fmsSim(avgIn),  avgIn!==null?'#ffffff':'#8b949e');
+  $t('i-sim-out',fmsSim(avgOut), avgOut!==null?'#ffffff':'#8b949e');
+  const tot=(avgIn!==null&&avgOut!==null)?avgIn+avgOut:null;
+  $t('i-sim-tot',fmsSim(tot), tot!==null?'#ffffff':'#8b949e');
+
   // ── Latency section ──
   if(d.state_debug&&d.state_debug.length>=12){
     const sd=d.state_debug;
