@@ -181,6 +181,8 @@ class DebugState:
         self.step_rise_ms  = None
         # per-cycle metrics: one entry per rising edge seen
         self.cycle_metrics = deque(maxlen=50)
+        # DGPPO inference time history (ms, from sd[14])
+        self.inf_ms_hist = deque(maxlen=VEL_HIST_LEN)
 
     def set_action(self, a0, a1):
         with self._lock:
@@ -222,6 +224,8 @@ class DebugState:
             self.cmd_vy_hist.append(data[11])
             self.rep_vx_hist.append(data[2])
             self.rep_vy_hist.append(data[3])
+            if len(data) > 14:
+                self.inf_ms_hist.append(data[14])
             # Persist step-test metrics; reset only when cmd returns near zero
             t_arr  = np.array(self.vel_times)
             cmd_vx = np.array(self.cmd_vx_hist)
@@ -275,6 +279,7 @@ class DebugState:
                 step_delay_ms    = self.step_delay_ms,
                 step_rise_ms     = self.step_rise_ms,
                 cycle_metrics    = list(self.cycle_metrics),
+                inf_ms_hist      = list(self.inf_ms_hist),
             )
 
 
@@ -647,6 +652,16 @@ def _build_figure():
     ax_rise  = _cycle_ax(0.100, 'rise 0→90%  (mechanical)', '#00cc44')
     ax_rise.set_xlabel('cycle edge  s', color=C_DIM, fontsize=6)
 
+    # Inference ms time-series — bottom-right, below the info panel
+    ax_inf = fig.add_axes([0.69, 0.10, 0.29, 0.21])
+    ax_inf.set_facecolor(C_PANEL)
+    ax_inf.set_title('DGPPO inference  (input lag)', color='#ff9955', fontsize=8, pad=3)
+    ax_inf.set_xlabel('time  s', color=C_DIM, fontsize=6)
+    ax_inf.set_ylabel('ms', color=C_DIM, fontsize=6)
+    ax_inf.tick_params(colors=C_DIM, labelsize=6)
+    ax_inf.axhline(0, color=C_GRID, lw=0.6, ls='--')
+    for s in ax_inf.spines.values(): s.set_color(C_GRID)
+
     # Slider row — 6 sliders + mode toggle
     s_h, s_y, g = 0.028, 0.022, 0.087
     sl_axes = [fig.add_axes([0.03 + i * g, s_y, 0.075, s_h], facecolor=C_PANEL)
@@ -694,11 +709,11 @@ def _build_figure():
                      rmin=sl_rmin, rmax=sl_rmax, mode=rb_mode)
     textboxes = dict(zlo=tb_zlo, zhi=tb_zhi, ilo=tb_ilo, ihi=tb_ihi,
                      rmin=tb_rmin, rmax=tb_rmax)
-    return fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise
+    return fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise, ax_inf
 
 
 def run_desktop(state: DebugState):
-    fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise = _build_figure()
+    fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise, ax_inf = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
     H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
          'rep_vel': None, 'raw_action': None, 'trail': [], 'texts': []}
@@ -710,6 +725,7 @@ def run_desktop(state: DebugState):
     ln_rep_vy, = ax_vy.plot(_empty, _empty, color='#44aaff', lw=1.5)
     ln_delay_cyc, = ax_delay.plot(_empty, _empty, 'o-', color='#44aaff', ms=5, lw=1.2)
     ln_rise_cyc,  = ax_rise.plot(_empty, _empty,  's-', color='#00cc44', ms=5, lw=1.2)
+    ln_inf,       = ax_inf.plot(_empty, _empty, color='#ff9955', lw=1.5)
 
     def _apply_filter_cfg():
         state.filter_cfg.set(
@@ -998,6 +1014,16 @@ def run_desktop(state: DebugState):
             rows += [('σ_rep vx/vy m/s', f'{std_rep_vx:.3f} / {std_rep_vy:.3f}', '#44aaff'),
                      ('σ_err vx/vy m/s', f'{std_err_vx:.3f} / {std_err_vy:.3f}', '#ffaa44')]
 
+        inf_hist = np.array(snap.get('inf_ms_hist', []))
+        if sd and len(sd) >= 15:
+            inf_ms_now = sd[14]
+            c = C_LIDAR if inf_ms_now < 20 else '#ffaa00' if inf_ms_now < 50 else C_WARN
+            rows.append(('DGPPO inference', f'{inf_ms_now:.1f} ms', c))
+            if len(inf_hist) >= 2:
+                rows.append(('  mean / std', f'{inf_hist.mean():.1f} / {inf_hist.std():.1f} ms', C_DIM))
+        else:
+            rows.append(('DGPPO inference', 'waiting...', C_DIM))
+
         def _step_row(lbl, ms, lo, hi):
             if ms is not None:
                 c = C_LIDAR if ms < lo else '#ffaa00' if ms < hi else C_WARN
@@ -1114,6 +1140,23 @@ def run_desktop(state: DebugState):
                            if _sr is not None else '')
                 _a.set_title(f'{_base} (vision)   {lag_str}{var_str}',
                              color=c, fontsize=8, pad=3)
+
+        # ── DGPPO inference ms time-series ───────────────────────────────────
+        if has_vel and len(inf_hist) >= 2:
+            ln_inf.set_data(t_arr[-len(inf_hist):], inf_hist)
+            t_min_inf = t_arr[-len(inf_hist)]
+            ax_inf.set_xlim(t_min_inf, t_arr[-1] + 0.1)
+            i_lo, i_hi = float(inf_hist.min()), float(inf_hist.max())
+            i_margin = max((i_hi - i_lo) * 0.20, 2.0)
+            ax_inf.set_ylim(max(0.0, i_lo - i_margin), i_hi + i_margin)
+            inf_mean = float(inf_hist.mean())
+            inf_std  = float(inf_hist.std())
+            c = C_LIDAR if inf_mean < 20 else '#ffaa00' if inf_mean < 50 else C_WARN
+            ax_inf.set_title(
+                f'DGPPO inference  (input lag)   mean={inf_mean:.1f}ms  σ={inf_std:.1f}ms',
+                color=c, fontsize=8, pad=3)
+        else:
+            ln_inf.set_data([], [])
 
         # ── Per-cycle stacked charts ──────────────────────────────────────────
         cycles = snap.get('cycle_metrics', [])
@@ -1242,6 +1285,8 @@ input.r{accent-color:var(--lidar)}
     <div class="row"><span class="k" style="color:#ffaa44">σ_err vx/vy</span><span class="v" id="i-sev" style="color:#ffaa44">—</span></div>
     <div class="row"><span class="k">pure delay</span><span class="v" id="i-dly">—</span></div>
     <div class="row"><span class="k">rise 0→90%</span><span class="v" id="i-rse">—</span></div>
+    <div class="row"><span class="k" style="color:#ff9955">DGPPO inference</span><span class="v" id="i-inf" style="color:#ff9955">—</span></div>
+    <div class="row"><span class="k" style="color:#8b949e">  mean / std</span><span class="v" id="i-inf-stat" style="color:#8b949e">—</span></div>
     <hr>
     <div class="row"><span class="k">TERRAIN</span><span class="v" id="i-ter">—</span></div>
     <hr>
@@ -1505,15 +1550,47 @@ function drawCycleChart(ctx2,x0,y0,w,h,cycles){
   _drawCycleHalf(ctx2,x0,y0,w,hTop,txD,delays,'#44aaff','pure delay',n+' cyc');
   _drawCycleHalf(ctx2,x0,y0+hTop+gap,w,hBot,txR,rises,'#00cc44','rise 0←90%',rises.length+'/'+n);
 }
+function drawInfChart(ctx2,x0,y0,w,h,times,infArr){
+  ctx2.fillStyle='#161b22';ctx2.fillRect(x0,y0,w,h);
+  ctx2.strokeStyle='#30363d';ctx2.lineWidth=0.7;ctx2.strokeRect(x0,y0,w,h);
+  const pad={l:34,r:6,t:16,b:26};
+  const pw=w-pad.l-pad.r,ph=h-pad.t-pad.b;
+  if(pw<10||ph<10)return;
+  const n=times.length;
+  ctx2.fillStyle='#ff9955';ctx2.font='9px monospace';ctx2.textAlign='center';
+  if(n<2||!infArr.length){ctx2.fillStyle='#8b949e';ctx2.fillText('DGPPO inference',x0+w/2,y0+11);ctx2.fillText('waiting...',x0+w/2,y0+h/2);return;}
+  const t0=times[times.length-infArr.length],tSpan=Math.max(times[n-1]-t0,1.0);
+  let vMin=Math.min(...infArr),vMax=Math.max(...infArr);
+  const mg=Math.max((vMax-vMin)*0.20,2);vMin=Math.max(0,vMin-mg);vMax+=mg;
+  const vSpan=vMax-vMin||1;
+  const tx=t=>x0+pad.l+(t-t0)/tSpan*pw;
+  const ty=v=>y0+pad.t+(1-(v-vMin)/vSpan)*ph;
+  const infTimes=times.slice(times.length-infArr.length);
+  const mean=infArr.reduce((a,b)=>a+b,0)/infArr.length;
+  const std=Math.sqrt(infArr.reduce((a,b)=>a+(b-mean)**2,0)/infArr.length);
+  const c=mean<20?'#00cc44':mean<50?'#ffaa00':'#ff4444';
+  ctx2.font='9px monospace';ctx2.textAlign='center';ctx2.fillStyle=c;
+  ctx2.fillText('DGPPO inference  (input lag)',x0+w/2,y0+11);
+  ctx2.font='8px monospace';ctx2.fillStyle='#8b949e';ctx2.textAlign='right';
+  ctx2.fillText(vMax.toFixed(0),x0+pad.l-2,y0+pad.t+4);
+  ctx2.fillText(vMin.toFixed(0),x0+pad.l-2,y0+pad.t+ph);
+  ctx2.strokeStyle='#ff9955';ctx2.lineWidth=1.5;ctx2.setLineDash([]);
+  ctx2.beginPath();
+  infArr.forEach((v,i)=>{const px=tx(infTimes[i]),py=ty(v);i===0?ctx2.moveTo(px,py):ctx2.lineTo(px,py);});
+  ctx2.stroke();
+  ctx2.fillStyle=c;ctx2.font='9px monospace';ctx2.textAlign='center';
+  ctx2.fillText('mean='+mean.toFixed(1)+'ms  σ='+std.toFixed(1)+'ms',x0+w/2,y0+h-14);
+}
 function drawVelChart(d){
   const W=vcv.width,H=vcv.height;
   if(W<20||H<20)return;
   vctx.fillStyle=C.bg;vctx.fillRect(0,0,W,H);
-  const gap=4,third=Math.floor((W-gap*2)/3);
+  const gap=4,quarter=Math.floor((W-gap*3)/4);
   const times=d.vel_times||[];
-  drawMiniChart(vctx,0,0,third,H,times,d.cmd_vx_hist||[],d.rep_vx_hist||[],'vx (vision frame)',_xcorrEma.vx);
-  drawMiniChart(vctx,third+gap,0,third,H,times,d.cmd_vy_hist||[],d.rep_vy_hist||[],'vy (vision frame)',_xcorrEma.vy);
-  drawCycleChart(vctx,(third+gap)*2,0,W-(third+gap)*2,H,d.cycle_metrics||[]);
+  drawMiniChart(vctx,0,0,quarter,H,times,d.cmd_vx_hist||[],d.rep_vx_hist||[],'vx (vision frame)',_xcorrEma.vx);
+  drawMiniChart(vctx,quarter+gap,0,quarter,H,times,d.cmd_vy_hist||[],d.rep_vy_hist||[],'vy (vision frame)',_xcorrEma.vy);
+  drawInfChart(vctx,(quarter+gap)*2,0,quarter,H,times,d.inf_ms_hist||[]);
+  drawCycleChart(vctx,(quarter+gap)*3,0,W-(quarter+gap)*3,H,d.cycle_metrics||[]);
 }
 
 function setMode(m){
@@ -1864,6 +1941,17 @@ function panel(d){
   }
   showStep('i-dly',d.step_delay_ms??null,300,600);
   showStep('i-rse',d.step_rise_ms??null,500,900);
+  if(d.state_debug&&d.state_debug.length>=15){
+    const inf=d.state_debug[14];
+    const ci=inf<20?'#00cc44':inf<50?'#ffaa00':'#ff4444';
+    $t('i-inf',inf.toFixed(1)+' ms',ci);
+    const ih=d.inf_ms_hist||[];
+    if(ih.length>=2){
+      const m=ih.reduce((a,b)=>a+b,0)/ih.length;
+      const s=Math.sqrt(ih.reduce((a,b)=>a+(b-m)**2,0)/ih.length);
+      $t('i-inf-stat',m.toFixed(1)+' / '+s.toFixed(1)+' ms');
+    }
+  }
   const tid=d.terrain_id;
   $t('i-ter',TN[tid]||'T'+tid,TC[tid]||'#fff');
   const raw=d.raw_cluster;
@@ -2091,6 +2179,7 @@ def run_web(state: DebugState, port=WEB_PORT):
             step_delay_ms    = snap.get('step_delay_ms'),
             step_rise_ms     = snap.get('step_rise_ms'),
             cycle_metrics    = snap.get('cycle_metrics', []),
+            inf_ms_hist      = snap.get('inf_ms_hist', []),
         ))
 
     # Build a "no signal" placeholder JPEG once at startup

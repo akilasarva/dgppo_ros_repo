@@ -590,6 +590,7 @@ class DGPPOROSNode(Node):
             float(v_x_target),   float(v_y_target),   # [10,11] cmd to Spot, body frame fwd/left (m/s)
             float(action_flat[0]) if len(action_flat) > 0 else 0.0,  # [12] raw policy a[0] (sim-X → right)
             float(action_flat[1]) if len(action_flat) > 1 else 0.0,  # [13] raw policy a[1] (sim-Y → fwd)
+            float(_inf_ms),                                            # [14] DGPPO inference time (ms)
         ]
         self.state_debug_pub.publish(_dbg)
 
