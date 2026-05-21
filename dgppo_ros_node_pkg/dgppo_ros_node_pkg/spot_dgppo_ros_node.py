@@ -59,6 +59,7 @@ class DGPPOROSNode(Node):
         self.declare_parameter('spoof_action', False)    # bypass policy; use fixed action below
         self.declare_parameter('spoof_action_x', 0.0)   # sim-X component [-1,1]: +X = Spot LEFT
         self.declare_parameter('spoof_action_y', 0.0)   # sim-Y component [-1,1]: +Y = Spot FORWARD
+        self.declare_parameter('use_projected_vel', False)  # if True: feed projected action vel (not Spot odometry vel) to next step
         self.num_clusters = 4
         self.twod_area_size = 1.5
 
@@ -130,6 +131,7 @@ class DGPPOROSNode(Node):
         self._tablet_has_lease = False  # True while tablet holds lease; plan pauses
 
         self.is_first_run = True
+        self._projected_sim_vel = None  # last action's projected sim-frame velocity (for use_projected_vel mode)
 
         self.ranges_sub = self.create_subscription(
             Float32MultiArray,
@@ -153,17 +155,13 @@ class DGPPOROSNode(Node):
         )
 
         self.scale_2d_3d = 11
-        self.origin_x = 0.0
-        self.origin_y = 0.0
-
-        # sim_origin: where Spot's startup location maps to in the training sim domain.
-        # Spot starts at vision-frame (0,0); without this offset sim_pos=(0,0) which is the
-        # lower-left corner of the [0,1.5]^2 training domain. The offset shifts it to the
-        # start-cluster centroid position so the policy sees a familiar region at startup.
+        # sim_origin is computed on the first control-loop tick from Spot's live
+        # position so the current physical location maps to centroid/scale in sim.
+        # Initialise to centroid/scale as a safe fallback (assumes robot at vision origin).
         _start_id = str(self.plan_sequence[0]["start"]) if self.plan_sequence else None
         _c = self.cluster_centroids.get(_start_id, [0.0, 0.0, 0.0]) if _start_id else [0.0, 0.0, 0.0]
-        self.sim_origin_x = (_c[1] - self.origin_y) / self.scale_2d_3d  # centroid[1]=lateral
-        self.sim_origin_y = (_c[0] - self.origin_x) / self.scale_2d_3d  # centroid[0]=forward
+        self.sim_origin_x = _c[1] / self.scale_2d_3d
+        self.sim_origin_y = _c[0] / self.scale_2d_3d
 
         self.spot_yaw_pub = self.create_publisher(Float32MultiArray, '/dgppo_spot_yaw', 10)
         self.spot_act_pub = self.create_publisher(Float32MultiArray, '/dgppo_action', 100)
@@ -339,29 +337,32 @@ class DGPPOROSNode(Node):
         # angular_offset = self.get_parameter('angular_offset_deg').get_parameter_value().double_value  # used in _build_state_and_graph
 
         if self.is_first_run:
-            if self.current_plan_step_index < len(self.plan_sequence):
-                start_cluster_id = str(self.plan_sequence[self.current_plan_step_index]["start"])
-                next_cluster_id = str(self.plan_sequence[self.current_plan_step_index]["next"])
-                if start_cluster_id in self.cluster_centroids:
-                    centroid = self.cluster_centroids[start_cluster_id]
-                    self.get_logger().info(f"Setting initial agent state to centroid of cluster {start_cluster_id}: {centroid}")
-                    scaled_pos_x_model = (centroid[1] - self.origin_y) / self.scale_2d_3d
-                    scaled_pos_y_model = (centroid[0] - self.origin_x) / self.scale_2d_3d
-                    scaled_agent_state_np = np.array([scaled_pos_x_model, scaled_pos_y_model, 0.0, 0.0], dtype=np.float32)
-                    self.latest_agent_state = jnp.expand_dims(jnp.array(scaled_agent_state_np), axis=0)
+            # Auto-compute sim_origin from Spot's current position so the physical
+            # start location maps to centroid/scale in sim regardless of how far Spot
+            # has travelled since boot.
+            _pos_init, _, _ = self._get_spot_state()
+            _start_id_fr = str(self.plan_sequence[0]["start"]) if self.plan_sequence else None
+            _c_fr = self.cluster_centroids.get(_start_id_fr, [0.0, 0.0, 0.0]) if _start_id_fr else [0.0, 0.0, 0.0]
+            self.sim_origin_x = (_c_fr[1] + _pos_init.y) / self.scale_2d_3d
+            self.sim_origin_y = (_c_fr[0] - _pos_init.x) / self.scale_2d_3d
+            self.get_logger().info(
+                f"[INIT] physical_start=({_pos_init.x:.3f} m, {_pos_init.y:.3f} m)  "
+                f"sim_origin=({self.sim_origin_x:.3f}, {self.sim_origin_y:.3f})  "
+                f"sim_start=({_c_fr[1]/self.scale_2d_3d:.3f}, {_c_fr[0]/self.scale_2d_3d:.3f})"
+            )
 
-                    plan_key = f"{start_cluster_id}-{next_cluster_id}"
-                    bearing_rad = self.bearing_map.get(plan_key, 0.0)
-                    self.get_logger().info(f"Initial Bearing from plan: {bearing_rad:.2f} rad ({math.degrees(bearing_rad):.2f} deg)")
-                else:
-                    self.get_logger().error(f"Centroid for cluster {start_cluster_id} not found in plan data!")
-                    return
+            if self.current_plan_step_index < len(self.plan_sequence):
+                plan_key = f"{self.plan_sequence[0]['start']}-{self.plan_sequence[0]['next']}"
+                bearing_rad = self.bearing_map.get(plan_key, 0.0)
+                self.get_logger().info(f"Initial Bearing from plan: {bearing_rad:.2f} rad ({math.degrees(bearing_rad):.2f} deg)")
             self.is_first_run = False
 
         debug_mode = self.get_parameter('debug_mode').get_parameter_value().bool_value
 
         if self.current_plan_step_index >= len(self.plan_sequence):
             self.get_logger().info("High-level plan is complete. Stopping control loop.")
+            with self._cmd_lock:
+                self._cmd_vel = (0.0, 0.0)
             if not self.get_parameter('dry_run').get_parameter_value().bool_value:
                 try:
                     self.command_client.robot_command(command=RobotCommandBuilder.stop_command())
@@ -415,6 +416,7 @@ class DGPPOROSNode(Node):
                 )
             except Exception as e:
                 self.get_logger().warning(f"State read failed while paused: {e}", throttle_duration_sec=2.0)
+            self._projected_sim_vel = None  # re-anchor to real odometry when plan resumes
             return
         if mapped_current_cluster == expected_next_cluster:
             self.current_plan_step_index += 1
@@ -436,8 +438,14 @@ class DGPPOROSNode(Node):
         self.spot_yaw_pub.publish(yaw_msg)
         sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x   # Spot Y (left)  → Sim X
         sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y   # Spot X (front) → Sim Y
-        sim_vel_x = -vel.y / self.scale_2d_3d                        # Spot Y-vel → Sim X-vel
-        sim_vel_y =  vel.x / self.scale_2d_3d                        # Spot X-vel → Sim Y-vel
+        if (self.get_parameter('use_projected_vel').get_parameter_value().bool_value
+                and self._projected_sim_vel is not None):
+            # Single-integrator assumption: robot reaches commanded velocity instantaneously,
+            # so feed last action's projected vel rather than Spot's lagged odometry vel.
+            sim_vel_x, sim_vel_y = self._projected_sim_vel
+        else:
+            sim_vel_x = -vel.y / self.scale_2d_3d                    # Spot Y-vel → Sim X-vel
+            sim_vel_y =  vel.x / self.scale_2d_3d                    # Spot X-vel → Sim Y-vel
         vel_body_fwd =  vel.x * math.cos(yaw) + vel.y * math.sin(yaw)   # body +x (forward)
         vel_body_lat = -vel.x * math.sin(yaw) + vel.y * math.cos(yaw)   # body +y (left)
         scaled_latest_state_np = np.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=np.float32)
@@ -517,6 +525,8 @@ class DGPPOROSNode(Node):
         self._debug_log_file.flush()
 
         new_movement_targets = jnp.squeeze(self.agent_step_euler(self.latest_agent_state, action), axis=0)
+        # Store projected sim-frame velocity for next tick (indices [2,3] of Euler step output).
+        self._projected_sim_vel = (float(new_movement_targets[2]), float(new_movement_targets[3]))
 
         reward, bonus_awarded_updated = self.env_instance.get_reward(graph, action)
         if bonus_awarded_updated.size == 0:
@@ -528,7 +538,7 @@ class DGPPOROSNode(Node):
         # new_movement_targets[2:4] = velocity in sim space (vel = action * 0.5)
         # Reverse sim→Spot axis mapping: v_spot_x = sim_vel_y, v_spot_y = -sim_vel_x
         # Clamp to Spot's safe walking speed (SDK hard limit is 2.0 m/s)
-        SPOT_MAX_VEL = 0.5  # m/s — conservative safe limit
+        SPOT_MAX_VEL = 1  # m/s — conservative safe limit
         v_x_raw = float(new_movement_targets[3]) * self.scale_2d_3d
         v_y_raw = -float(new_movement_targets[2]) * self.scale_2d_3d
         max_component = max(abs(v_x_raw), abs(v_y_raw))
@@ -651,8 +661,16 @@ class DGPPOROSNode(Node):
             agent_pos_2d[1] + ranges_res * np.sin(angles_beam),
         ], axis=1).astype(np.float32)  # (n_rays, 2)
 
-        # ── 2. Terrain boundary hits: zeros (geometry not wired yet) ─────────────
-        bnd_hits = np.zeros((n_rays, 2), dtype=np.float32)
+        # ── 2. Terrain boundary hits: max-range endpoints (sense_range along each beam) ──
+        # Placing hits at agent_pos + sense_range*dir matches the training convention for
+        # "no boundary found" (alpha=1.0 in _get_semantic_lidar_single_real / base.py:ends).
+        # This is position-independent and produces proximity=0 in the reward functions,
+        # unlike world-origin zeros which create a position-dependent directional artifact.
+        _sense_range = self.env_instance.params['comm_radius']
+        bnd_hits = np.stack([
+            agent_pos_2d[0] + _sense_range * np.cos(angles_beam),
+            agent_pos_2d[1] + _sense_range * np.sin(angles_beam),
+        ], axis=1).astype(np.float32)  # (n_rays, 2) — sense_range from agent along each beam
 
         # ── 3. Flat semantic lidar arrays ─────────────────────────────────────────
         all_hit_positions = np.concatenate([obs_hits, bnd_hits], axis=0)  # (2*n_rays, 2)
