@@ -59,6 +59,7 @@ class DGPPOROSNode(Node):
         self.declare_parameter('spoof_action', False)    # bypass policy; use fixed action below
         self.declare_parameter('spoof_action_x', 0.0)   # sim-X component [-1,1]: +X = Spot LEFT
         self.declare_parameter('spoof_action_y', 0.0)   # sim-Y component [-1,1]: +Y = Spot FORWARD
+        self.declare_parameter('use_projected_vel', False)  # if True: use last action's projected vel (not Spot odometry vel) for next state
         self.num_clusters = 4
         self.twod_area_size = 1.5
 
@@ -130,6 +131,7 @@ class DGPPOROSNode(Node):
         self._tablet_has_lease = False  # True while tablet holds lease; plan pauses
 
         self.is_first_run = True
+        self._projected_sim_vel = None  # last action's projected sim-frame velocity (for use_projected_vel mode)
 
         self.ranges_sub = self.create_subscription(
             Float32MultiArray,
@@ -415,6 +417,7 @@ class DGPPOROSNode(Node):
                 )
             except Exception as e:
                 self.get_logger().warning(f"State read failed while paused: {e}", throttle_duration_sec=2.0)
+            self._projected_sim_vel = None  # re-anchor to real odometry when plan resumes
             return
         if mapped_current_cluster == expected_next_cluster:
             self.current_plan_step_index += 1
@@ -436,8 +439,14 @@ class DGPPOROSNode(Node):
         self.spot_yaw_pub.publish(yaw_msg)
         sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x   # Spot Y (left)  → Sim X
         sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y   # Spot X (front) → Sim Y
-        sim_vel_x = -vel.y / self.scale_2d_3d                        # Spot Y-vel → Sim X-vel
-        sim_vel_y =  vel.x / self.scale_2d_3d                        # Spot X-vel → Sim Y-vel
+        if (self.get_parameter('use_projected_vel').get_parameter_value().bool_value
+                and self._projected_sim_vel is not None):
+            # Single-integrator assumption: velocity is achieved instantaneously, so use
+            # the vel projected from last action rather than Spot's lagged odometry vel.
+            sim_vel_x, sim_vel_y = self._projected_sim_vel
+        else:
+            sim_vel_x = -vel.y / self.scale_2d_3d                    # Spot Y-vel → Sim X-vel
+            sim_vel_y =  vel.x / self.scale_2d_3d                    # Spot X-vel → Sim Y-vel
         vel_body_fwd =  vel.x * math.cos(yaw) + vel.y * math.sin(yaw)   # body +x (forward)
         vel_body_lat = -vel.x * math.sin(yaw) + vel.y * math.cos(yaw)   # body +y (left)
         scaled_latest_state_np = np.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=np.float32)
@@ -517,6 +526,7 @@ class DGPPOROSNode(Node):
         self._debug_log_file.flush()
 
         new_movement_targets = jnp.squeeze(self.agent_step_euler(self.latest_agent_state, action), axis=0)
+        self._projected_sim_vel = (float(new_movement_targets[2]), float(new_movement_targets[3]))
 
         reward, bonus_awarded_updated = self.env_instance.get_reward(graph, action)
         if bonus_awarded_updated.size == 0:
