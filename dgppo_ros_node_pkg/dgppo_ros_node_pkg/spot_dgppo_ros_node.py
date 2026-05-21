@@ -439,14 +439,21 @@ class DGPPOROSNode(Node):
         self.spot_yaw_pub.publish(yaw_msg)
         sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x   # Spot Y (left)  → Sim X
         sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y   # Spot X (front) → Sim Y
+        spot_sim_vel_x = -vel.y / self.scale_2d_3d
+        spot_sim_vel_y =  vel.x / self.scale_2d_3d
         if (self.get_parameter('use_projected_vel').get_parameter_value().bool_value
                 and self._projected_sim_vel is not None):
             # Single-integrator assumption: velocity is achieved instantaneously, so use
             # the vel projected from last action rather than Spot's lagged odometry vel.
             sim_vel_x, sim_vel_y = self._projected_sim_vel
+            self.get_logger().info(
+                f'[VEL] spot_odom=({spot_sim_vel_x:.3f}, {spot_sim_vel_y:.3f})  '
+                f'prev_action_proj=({sim_vel_x:.3f}, {sim_vel_y:.3f})  [using projected]',
+                throttle_duration_sec=0.5,
+            )
         else:
-            sim_vel_x = -vel.y / self.scale_2d_3d                    # Spot Y-vel → Sim X-vel
-            sim_vel_y =  vel.x / self.scale_2d_3d                    # Spot X-vel → Sim Y-vel
+            sim_vel_x = spot_sim_vel_x
+            sim_vel_y = spot_sim_vel_y
         vel_body_fwd =  vel.x * math.cos(yaw) + vel.y * math.sin(yaw)   # body +x (forward)
         vel_body_lat = -vel.x * math.sin(yaw) + vel.y * math.cos(yaw)   # body +y (left)
         scaled_latest_state_np = np.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=np.float32)

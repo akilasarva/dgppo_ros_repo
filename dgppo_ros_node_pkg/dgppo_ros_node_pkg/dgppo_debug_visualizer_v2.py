@@ -916,11 +916,11 @@ def run_desktop(state: DebugState):
         H['heading'] = _arrow((0, 1), C_HEADING, 3.0)
 
         # Bearing: world-frame bearing rotated into body frame by subtracting spot_yaw.
-        # At yaw=0 (initial heading), bearing=0 draws straight up (FWD).
-        # As the robot turns, the arrow rotates to show the relative direction.
+        # Bearing is in sim frame (CCW from Sim +X). Spot forward = Sim +Y = sim angle π/2.
+        # No extra offset needed: cos/sin with matplotlib axes (x=right, y=up) maps correctly.
         if bearing_rad is not None:
             yaw_off = spot_yaw if spot_yaw is not None else 0.0
-            a = (bearing_rad - yaw_off) + math.pi / 2
+            a = bearing_rad - yaw_off
             H['bearing'] = _arrow((math.cos(a), math.sin(a)), C_BEARING, 3.0)
 
         # ── Reported velocity (body frame): fwd=sd[4], lat=sd[5] positive-left ──
@@ -1644,7 +1644,7 @@ function post(){
   });
 });
 
-/* Lidar beams: 90° CW rotation applied (sin/cos swapped). Bearing/heading arrows: +π/2 so 0=FWD=UP. */
+/* Lidar beams: 90° CW rotation applied (sin/cos swapped). Bearing arrows: standard polar, no offset (bearing is sim-frame angle; Spot fwd=Sim+Y=π/2 → UP). */
 function lidarPt(r,a,cx,cy,sc){
   // 90° CW rotation (x-flip + rotate): display x=r·sin(a), display y=r·cos(a)
   return[cx + r*Math.sin(a)*sc, cy - r*Math.cos(a)*sc];
@@ -1763,10 +1763,10 @@ function draw(d){
   // Arrows: body-frame display.
   // Heading: robot forward is always UP — constant, never rotates.
   drawArrow(Math.PI/2, sc, cx, cy, C.head, 3.5);
-  // Bearing: world-frame bearing rotated into body frame by subtracting spot_yaw.
+  // Bearing: world-frame sim-frame angle (CCW from Sim +X). Spot forward = Sim +Y = π/2.
   if(d.bearing_rad!=null){
     const yawOff=d.spot_yaw!=null?d.spot_yaw:0;
-    drawArrow(d.bearing_rad-yawOff+Math.PI/2,sc,cx,cy,C.bear,3.5);
+    drawArrow(d.bearing_rad-yawOff,sc,cx,cy,C.bear,3.5);
   }
 
   // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
