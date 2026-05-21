@@ -34,6 +34,7 @@ import time
 # DGPPO and LidarEnv components
 from .dgppo.dgppo.env.lidar_env.lidar_target import (
     LidarTarget, LidarTargetV1, LidarTargetV2, LidarTargetV3, LidarTargetV4,
+    LidarTargetBFLag2, LidarTargetBFLag8,
 )
 from .dgppo.dgppo.env.lidar_env.base import LidarEnvState
 from .dgppo.dgppo.env.lidar_env.base import get_terrain_id as _compute_terrain_id
@@ -64,11 +65,13 @@ class DGPPOROSNode(Node):
         self.twod_area_size = 1.5
 
         _ENV_CLASSES = {
-            'LidarTarget':   LidarTarget,
-            'LidarTargetV1': LidarTargetV1,
-            'LidarTargetV2': LidarTargetV2,
-            'LidarTargetV3': LidarTargetV3,
-            'LidarTargetV4': LidarTargetV4,
+            'LidarTarget':       LidarTarget,
+            'LidarTargetV1':     LidarTargetV1,
+            'LidarTargetV2':     LidarTargetV2,
+            'LidarTargetV3':     LidarTargetV3,
+            'LidarTargetV4':     LidarTargetV4,
+            'LidarTargetBFLag2': LidarTargetBFLag2,
+            'LidarTargetBFLag8': LidarTargetBFLag8,
         }
 
         model_dir = "dgppo/logs/LidarTargetV1/dgppo/terrain_bent_bridge"
@@ -364,6 +367,8 @@ class DGPPOROSNode(Node):
 
         if self.current_plan_step_index >= len(self.plan_sequence):
             self.get_logger().info("High-level plan is complete. Stopping control loop.")
+            with self._cmd_lock:
+                self._cmd_vel = (0.0, 0.0)
             if not self.get_parameter('dry_run').get_parameter_value().bool_value:
                 try:
                     self.command_client.robot_command(command=RobotCommandBuilder.stop_command())
@@ -439,8 +444,8 @@ class DGPPOROSNode(Node):
         self.spot_yaw_pub.publish(yaw_msg)
         sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x   # Spot Y (left)  → Sim X
         sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y   # Spot X (front) → Sim Y
-        spot_sim_vel_x = -vel.y / self.scale_2d_3d
-        spot_sim_vel_y =  vel.x / self.scale_2d_3d
+        spot_sim_vel_x = -vel.y 
+        spot_sim_vel_y =  vel.x 
         if (self.get_parameter('use_projected_vel').get_parameter_value().bool_value
                 and self._projected_sim_vel is not None):
             # Single-integrator assumption: velocity is achieved instantaneously, so use
