@@ -85,7 +85,8 @@ C_HEADING       = '#cc44ff'    # purple: spot heading
 C_TRAIL         = '#3060cc'    # blue: action trail
 C_WARN          = '#ff4444'    # red: stop/no-action
 C_REP_VEL       = '#44aaff'    # blue: reported velocity arrow (matches vel-plot rep color)
-C_RAW_ACTION    = '#ff9900'    # orange: raw (unclipped) policy action unit vector
+C_RAW_ACTION    = '#ff9900'    # orange: raw (pre-rotation) policy action unit vector
+C_ROT_ACTION    = '#ff4400'    # red-orange: post-rotation action (what is actually sent to Spot)
 C_CLOUD_ALL     = '#2a2a3a'    # dim: all raw cloud XY
 C_CLOUD_SLICE_Z = '#ffcc00'    # yellow: Z-height slice (controls clustering)
 C_CLOUD_SLICE_I = '#ff44cc'    # magenta: intensity slice (visual only)
@@ -598,7 +599,8 @@ def _build_figure():
         mpatches.Patch(color=C_LIDAR,         label=f'processed ranges ({NUM_RANGES} bins)'),
         mpatches.Patch(color=C_TOPK,          label=f'top-{TOP_K} closest → policy input'),
         mpatches.Patch(color=C_ACTION,        label='action direction (unit vec, clipped)'),
-        mpatches.Patch(color=C_RAW_ACTION,    label='raw policy output (unit vec, unclipped)'),
+        mpatches.Patch(color=C_RAW_ACTION,    label='pre-rotation policy output (dashed)'),
+        mpatches.Patch(color=C_ROT_ACTION,    label='post-rotation action (sent to Spot)'),
         mpatches.Patch(color=C_REP_VEL,       label='reported vel  (body frame, unit vec)'),
         mpatches.Patch(color=C_BEARING,       label='plan bearing  (0=FWD=UP)'),
         mpatches.Patch(color=C_HEADING,       label='spot heading  (0=FWD=UP)'),
@@ -716,7 +718,7 @@ def run_desktop(state: DebugState):
     fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise, ax_inf = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
     H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
-         'rep_vel': None, 'raw_action': None, 'trail': [], 'texts': []}
+         'rep_vel': None, 'raw_action': None, 'rot_action': None, 'trail': [], 'texts': []}
 
     _empty: list = []
     ln_cmd_vx, = ax_vx.plot(_empty, _empty, color='#ff4466', lw=1.5)
@@ -764,7 +766,7 @@ def run_desktop(state: DebugState):
 
     def _clear():
         _rm(H['lidar']); _rm(H['trail']); _rm(H['texts'])
-        for k in ('arrow', 'bearing', 'heading', 'rep_vel', 'raw_action'):
+        for k in ('arrow', 'bearing', 'heading', 'rep_vel', 'raw_action', 'rot_action'):
             if H[k] is not None:
                 try: H[k].remove()
                 except Exception: pass
@@ -773,10 +775,11 @@ def run_desktop(state: DebugState):
             ax3d.cla()
             _style_3d(ax3d)
 
-    def _arrow(xy_tip, color, lw, alpha=1.0):
+    def _arrow(xy_tip, color, lw, alpha=1.0, linestyle='-'):
         return ax.annotate('', xy=xy_tip, xytext=(0, 0),
                            arrowprops=dict(arrowstyle='->', color=color,
-                                           lw=lw, mutation_scale=28, alpha=alpha))
+                                           lw=lw, mutation_scale=28, alpha=alpha,
+                                           linestyle=linestyle))
 
     _xcorr_ema = [None, None]   # [vx_ema, vy_ema] — smoothed xcorr lag
     _XCORR_ALPHA = 0.2          # EMA weight for each new sample
@@ -932,12 +935,20 @@ def run_desktop(state: DebugState):
             if rv_mag > 0.02:
                 H['rep_vel'] = _arrow((rv_right / rv_mag, rv_fwd / rv_mag), C_REP_VEL, 3.0)
 
-        # ── Raw (unclipped) policy action unit vector: sd[12]=right, sd[13]=fwd ──
+        # ── Pre-rotation policy action: sd[12]=right, sd[13]=fwd ──────────────
         if sd_now and len(sd_now) >= 14:
             ra_right, ra_fwd = sd_now[12], sd_now[13]
             ra_mag = math.hypot(ra_right, ra_fwd)
             if ra_mag > 0.02:
-                H['raw_action'] = _arrow((ra_right / ra_mag, ra_fwd / ra_mag), C_RAW_ACTION, 3.0)
+                H['raw_action'] = _arrow((ra_right / ra_mag, ra_fwd / ra_mag), C_RAW_ACTION, 3.0,
+                                         linestyle='--')
+
+        # ── Post-rotation action: sd[15]=right, sd[16]=fwd (only when rotation active) ──
+        if sd_now and len(sd_now) >= 17:
+            rot_right, rot_fwd = sd_now[15], sd_now[16]
+            rot_mag = math.hypot(rot_right, rot_fwd)
+            if rot_mag > 0.02:
+                H['rot_action'] = _arrow((rot_right / rot_mag, rot_fwd / rot_mag), C_ROT_ACTION, 4.0)
 
         # ── Action: atan2(a1_fwd, a0_right) already gives FWD=UP ─────────
         if snap['has_action']:
@@ -1776,11 +1787,17 @@ function draw(d){
     if(rvMag>0.02) drawArrow(Math.atan2(rvFwd,rvRight),sc,cx,cy,'#44aaff',3.0);
   }
 
-  // Raw (unclipped) policy action unit vector: sd[12]=right, sd[13]=fwd
+  // Pre-rotation policy action (dashed via alpha trick): sd[12]=right, sd[13]=fwd
   if(d.state_debug&&d.state_debug.length>=14){
     const ra0=d.state_debug[12],ra1=d.state_debug[13];
     const raMag=Math.hypot(ra0,ra1);
-    if(raMag>0.02) drawArrow(Math.atan2(ra1,ra0),sc,cx,cy,'#ff9900',3.0);
+    if(raMag>0.02) drawArrow(Math.atan2(ra1,ra0),sc,cx,cy,'#ff9900',3.0,0.45);
+  }
+  // Post-rotation action: sd[15]=right, sd[16]=fwd (only present when rotation active)
+  if(d.state_debug&&d.state_debug.length>=17){
+    const rr0=d.state_debug[15],rr1=d.state_debug[16];
+    const rrMag=Math.hypot(rr0,rr1);
+    if(rrMag>0.02) drawArrow(Math.atan2(rr1,rr0),sc,cx,cy,'#ff4400',4.0);
   }
   // Action (clipped): atan2(fwd, right) already gives FWD=UP — no offset needed
   if(d.has_action){
@@ -1803,7 +1820,8 @@ function draw(d){
     [C.lidar,          'Lidar beams'],
     [C.topk,           'Top-K inputs'],
     [C.act,            'Action (clipped, unit vec)'],
-    ['#ff9900',        'Raw policy (unclipped, unit vec)'],
+    ['#ff9900',        'Pre-rotation policy output (dim)'],
+    ['#ff4400',        'Post-rotation action (sent to Spot)'],
     ['#44aaff',        'Reported vel (unit vec)'],
     [C.bear,           'Plan bearing'],
     [C.head,           'Spot heading'],

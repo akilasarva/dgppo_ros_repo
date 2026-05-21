@@ -30,6 +30,7 @@ setup(
             'dgppo_ros_node = dgppo_ros_node_pkg.dgppo_ros_node:main',
             'carla_bridge_node = dgppo_ros_node_pkg.carla_bridge_node:main',
             'spot_dgppo_ros_node = dgppo_ros_node_pkg.spot_dgppo_ros_node:main',
+            'spot_dgppo_ros_node_bridges = dgppo_ros_node_pkg.spot_dgppo_ros_node_bridges:main',
             'dgppo_test_node = dgppo_ros_node_pkg.dgppo_test_node:main',
             'dgppo_debug_visualizer = dgppo_ros_node_pkg.dgppo_debug_visualizer:main',
             'dgppo_debug_visualizer_v2 = dgppo_ros_node_pkg.dgppo_debug_visualizer_v2:main',

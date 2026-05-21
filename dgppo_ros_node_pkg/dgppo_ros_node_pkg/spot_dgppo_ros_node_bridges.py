@@ -31,13 +31,9 @@ from bosdyn.client.frame_helpers import (
 
 import time
 
-# DGPPO and LidarEnv components
-from .dgppo.dgppo.env.lidar_env.lidar_target import (
-    LidarTarget, LidarTargetV1, LidarTargetV2, LidarTargetV3, LidarTargetV4,
-    LidarTargetBFLag2, LidarTargetBFLag8,
-)
+# DGPPO and LidarEnv components — bridges branch (no terrain variants)
+from .dgppo.dgppo.env.lidar_env.lidar_target import LidarTarget
 from .dgppo.dgppo.env.lidar_env.base import LidarEnvState
-from .dgppo.dgppo.env.lidar_env.base import get_terrain_id as _compute_terrain_id
 from .dgppo.dgppo.algo.dgppo import DGPPO
 from .dgppo.dgppo.algo import make_algo
 from .dgppo.dgppo.utils.graph import GraphsTuple
@@ -48,7 +44,7 @@ class DGPPOROSNode(Node):
     def __init__(self):
         super().__init__('dgppo_ros_node')
 
-        self.get_logger().info("Initializing DGPPO ROS Node...")
+        self.get_logger().info("Initializing DGPPO ROS Node (bridges branch)...")
 
         self.declare_parameter('debug_mode', False)
         self.declare_parameter('current_cluster_id', 1)
@@ -61,21 +57,10 @@ class DGPPOROSNode(Node):
         self.declare_parameter('spoof_action_x', 0.0)   # sim-X component [-1,1]: +X = Spot LEFT
         self.declare_parameter('spoof_action_y', 0.0)   # sim-Y component [-1,1]: +Y = Spot FORWARD
         self.declare_parameter('use_projected_vel', False)  # if True: use last action's projected vel (not Spot odometry vel) for next state
-        self.declare_parameter('action_rotation_deg', 0.0)  # rotate action vector CW by this many degrees before sending to Spot
         self.num_clusters = 4
         self.twod_area_size = 1.5
 
-        _ENV_CLASSES = {
-            'LidarTarget':       LidarTarget,
-            'LidarTargetV1':     LidarTargetV1,
-            'LidarTargetV2':     LidarTargetV2,
-            'LidarTargetV3':     LidarTargetV3,
-            'LidarTargetV4':     LidarTargetV4,
-            'LidarTargetBFLag2': LidarTargetBFLag2,
-            'LidarTargetBFLag8': LidarTargetBFLag8,
-        }
-
-        model_dir = "dgppo/logs/LidarTargetV1/dgppo/terrain_bent_bridge"
+        model_dir = "dgppo/logs/LidarTarget/dgppo/91bridges"
         config_path = os.path.join(model_dir, "config.yaml")
         params_path = os.path.join(model_dir, "models")
 
@@ -90,11 +75,10 @@ class DGPPOROSNode(Node):
 
         # Physical LiDAR bins from /processed_ranges — independent of training n_rays
         self.n_rays_phys = 72  # TODO: verify Spot LiDAR bin count
-        # Merge class defaults so all keys (including n_rays=32) are present,
-        # then apply specific overrides.
-        env_class_name = config.get('env', 'LidarTarget')
-        env_class = _ENV_CLASSES.get(env_class_name, LidarTarget)
-        self.get_logger().info(f"Using env class: {env_class_name}")
+
+        # bridges branch only has LidarTarget
+        env_class = LidarTarget
+        self.get_logger().info(f"Using env class: LidarTarget (bridges branch)")
 
         merged_params = {**env_class.PARAMS, **env_kwargs.get('params', {})}
         merged_params['top_k_rays'] = 8
@@ -130,7 +114,6 @@ class DGPPOROSNode(Node):
         self.latest_ranges_msg = None
         self.latest_agent_state = None
         self.latest_predicted_cluster_id = None
-        self.latest_terrain_id = 1  # Grass default until /current_terrain publishes
         self.next_cluster_bonus_awarded = jnp.zeros(self.env_instance.num_agents, dtype=jnp.bool_)
         self._tablet_has_lease = False  # True while tablet holds lease; plan pauses
 
@@ -152,21 +135,11 @@ class DGPPOROSNode(Node):
             10
         )
 
-        self.terrain_sub = self.create_subscription(
-            Int16,
-            '/current_terrain',
-            self.terrain_callback,
-            10
-        )
-
         self.scale_2d_3d = 11
         self.origin_x = 0.0
         self.origin_y = 0.0
 
         # sim_origin: where Spot's startup location maps to in the training sim domain.
-        # Spot starts at vision-frame (0,0); without this offset sim_pos=(0,0) which is the
-        # lower-left corner of the [0,1.5]^2 training domain. The offset shifts it to the
-        # start-cluster centroid position so the policy sees a familiar region at startup.
         _start_id = str(self.plan_sequence[0]["start"]) if self.plan_sequence else None
         _c = self.cluster_centroids.get(_start_id, [0.0, 0.0, 0.0]) if _start_id else [0.0, 0.0, 0.0]
         self.sim_origin_x = (_c[1] - self.origin_y) / self.scale_2d_3d  # centroid[1]=lateral
@@ -187,14 +160,14 @@ class DGPPOROSNode(Node):
         _ts = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         self._debug_log_path = os.path.join(_log_dir, f'dgppo_run_{_ts}.jsonl')
         self._debug_log_file = open(self._debug_log_path, 'w')
+
         self.get_logger().info(f"Debug log: {self._debug_log_path}")
 
-        self.get_logger().info("DGPPO ROS Node fully initialized and ready.")
-        self.get_logger().info("Default mode: Listening for predicted cluster ID on /predicted_cluster_id.")
+        self.get_logger().info("DGPPO ROS Node (bridges) fully initialized and ready.")
+        self.get_logger().info("Default mode: Listening for predicted cluster ID on /predicted_cluster.")
         self.get_logger().info("To activate debug mode: 'ros2 param set /dgppo_ros_node debug_mode true'")
         self.get_logger().info("When in debug mode: 'ros2 param set /dgppo_ros_node current_cluster_id <new_id>'")
 
-        # yveys: Here we can initialize the Spot robot.
         self.get_logger().info("Initializing the Spot robot.")
         self.sdk = bosdyn.client.create_standard_sdk("understanding-spot")
         self.robot = self.sdk.create_robot("10.0.0.3")
@@ -205,23 +178,17 @@ class DGPPOROSNode(Node):
         self.lease_client = self.robot.ensure_client("lease")
         self.command_client = self.robot.ensure_client(RobotCommandClient.default_service_name)
 
-        # yveys: Take the lease from the tablet.
         self.lease_client.take()
         self.lease_keep_alive = bosdyn.client.lease.LeaseKeepAlive(self.lease_client)
 
         self.get_logger().info("Current state")
         self.get_logger().info(str(self.state_client.get_robot_state()))
 
-        # Cache Spot state in a background thread so the control loop never blocks
-        # on a gRPC call.  The poller runs at ~50 Hz (20 ms); the control loop reads
-        # self._cached_robot_state which is always fresh enough.
         self._cached_robot_state = None
         self._state_lock = threading.Lock()
         self._state_poller = threading.Thread(target=self._poll_spot_state, daemon=True)
         self._state_poller.start()
 
-        # Command sender: inference writes (v_x, v_y) here; a background thread
-        # forwards it to Spot so robot_command gRPC never blocks the control loop.
         self._cmd_vel = (0.0, 0.0)
         self._cmd_lock = threading.Lock()
         self._cmd_sender = threading.Thread(target=self._send_commands, daemon=True)
@@ -239,8 +206,7 @@ class DGPPOROSNode(Node):
             time.sleep(0.02)
 
     def _send_commands(self):
-        """Background thread: forwards _cmd_vel to Spot at ~25 Hz so robot_command
-        gRPC never blocks the inference loop."""
+        """Background thread: forwards _cmd_vel to Spot at ~25 Hz."""
         while True:
             with self._cmd_lock:
                 v_x, v_y = self._cmd_vel
@@ -252,9 +218,8 @@ class DGPPOROSNode(Node):
                 self._tablet_has_lease = True
             except Exception:
                 pass
-            time.sleep(0.04)  # 25 Hz — well within the 500 ms command expiry window
+            time.sleep(0.04)  # 25 Hz
 
-    # yveys: Spot get_state function for easier access.
     def _get_spot_state(self):
         class Point:
             def __init__(self, x, y):
@@ -264,7 +229,6 @@ class DGPPOROSNode(Node):
         with self._state_lock:
             robot_state = self._cached_robot_state
         if robot_state is None:
-            # Fallback: blocking call on first tick before cache is warm
             robot_state = self.state_client.get_robot_state()
 
         kinematic_state = robot_state.kinematic_state
@@ -278,7 +242,6 @@ class DGPPOROSNode(Node):
 
         pos = Point(tform_body_in_vision.x, tform_body_in_vision.y)
         vel = Point(kinematic_state.velocity_of_body_in_vision.linear.x, kinematic_state.velocity_of_body_in_vision.linear.y)
-        # .angle = body yaw (radians) in vision frame — valid even when stationary
         yaw = tform_body_in_vision.angle
 
         return pos, vel, yaw
@@ -317,7 +280,7 @@ class DGPPOROSNode(Node):
             data = json.load(f)
             return data.get("plan_sequence", []), data.get("bearing_map", {}), data.get("centroids", {})
 
-    def _map_cluster_id(self, cluster_id: int) -> int:  ### USE GROUND LIDAR (bridge)
+    def _map_cluster_id(self, cluster_id: int) -> int:
         # Maps raw classifier output → canonical bridge cluster IDs:
         #   0 = open_space, 1 = approach_bridge_0, 2 = on_bridge_0, 3 = exit_bridge_0
         self.get_logger().info(f"cluster id: {cluster_id}")
@@ -338,13 +301,7 @@ class DGPPOROSNode(Node):
     def predicted_cluster_callback(self, msg: Int16):
         self.latest_predicted_cluster_id = msg.data
 
-    def terrain_callback(self, msg: Int16):
-        # Terrain ID: Road=0, Grass=1, Sidewalk=2
-        self.latest_terrain_id = msg.data
-
     def control_loop(self):
-        # angular_offset = self.get_parameter('angular_offset_deg').get_parameter_value().double_value  # used in _build_state_and_graph
-
         if self.is_first_run:
             if self.current_plan_step_index < len(self.plan_sequence):
                 start_cluster_id = str(self.plan_sequence[self.current_plan_step_index]["start"])
@@ -409,7 +366,6 @@ class DGPPOROSNode(Node):
                 "To reclaim: ros2 service call /dgppo_take_lease std_srvs/srv/Trigger '{}'",
                 throttle_duration_sec=3.0
             )
-            # Still read and publish state so we stay current.
             try:
                 pos, vel, yaw = self._get_spot_state()
                 yaw_msg = Float32MultiArray()
@@ -439,7 +395,7 @@ class DGPPOROSNode(Node):
 
         raw_ranges_np = np.array(self.latest_ranges_msg.data, dtype=np.float32)
         old_scaled_ranges_np = raw_ranges_np / self.scale_2d_3d
-        scaled_ranges_np = old_scaled_ranges_np  # no reversal: clustering node bins by atan2 (CCW), matches visualizer
+        scaled_ranges_np = old_scaled_ranges_np
         # Update agent state from real Spot odometry
         pos, vel, yaw = self._get_spot_state()
         yaw_msg = Float32MultiArray()
@@ -468,19 +424,10 @@ class DGPPOROSNode(Node):
             sim_pos_y = spot_sim_pos_y
             sim_vel_x = spot_sim_vel_x
             sim_vel_y = spot_sim_vel_y
-            self.get_logger().info(
-                f'[STATE] odom_pos=({spot_sim_pos_x:.3f}, {spot_sim_pos_y:.3f})  '
-                f'odom_vel=({spot_sim_vel_x:.3f}, {spot_sim_vel_y:.3f})  [using odometry]',
-                throttle_duration_sec=0.5,
-            )
-        vel_body_fwd =  vel.x * math.cos(yaw) + vel.y * math.sin(yaw)   # body +x (forward)
-        vel_body_lat = -vel.x * math.sin(yaw) + vel.y * math.cos(yaw)   # body +y (left)
+        vel_body_fwd =  vel.x * math.cos(yaw) + vel.y * math.sin(yaw)
+        vel_body_lat = -vel.x * math.sin(yaw) + vel.y * math.cos(yaw)
         scaled_latest_state_np = np.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=np.float32)
         self.latest_agent_state = jnp.expand_dims(jnp.array(scaled_latest_state_np), axis=0)
-        self.get_logger().info(
-            f'[GRAPH INPUT] pos=({sim_pos_x:.3f}, {sim_pos_y:.3f})  vel=({sim_vel_x:.3f}, {sim_vel_y:.3f})',
-            throttle_duration_sec=0.5,
-        )
 
         import time as _time
         max_range_val = float(raw_ranges_np.max())
@@ -509,7 +456,6 @@ class DGPPOROSNode(Node):
             'yaw_deg': float(math.degrees(yaw)),
             'bearing_deg': float(math.degrees(bearing_val)),
             'angular_offset_deg': float(angular_offset),
-            'terrain_id': int(self.latest_terrain_id),
         }
         self.get_logger().info(
             f"CLUSTER raw={current_cluster_id} mapped={mapped_current_cluster} "
@@ -547,18 +493,7 @@ class DGPPOROSNode(Node):
             action = jnp.array([[sx, sy]], dtype=jnp.float32)
             self.get_logger().info(f'[SPOOF] action x={sx:.3f}  y={sy:.3f}', throttle_duration_sec=0.5)
         action = self.clip_action(action)
-        action_raw_flat = [float(a) for a in np.array(action).flatten()]  # pre-rotation policy output
-        rot_deg = self.get_parameter('action_rotation_deg').get_parameter_value().double_value
-        if rot_deg != 0.0:
-            theta = math.radians(rot_deg)  # positive = CW
-            c, s = math.cos(theta), math.sin(theta)
-            ax, ay = action_raw_flat[0], action_raw_flat[1]
-            action = jnp.array([[c * ax + s * ay, -s * ax + c * ay]], dtype=jnp.float32)
-            self.get_logger().info(
-                f'[ACTION ROT] raw=({ax:.3f}, {ay:.3f})  rotated=({float(action[0,0]):.3f}, {float(action[0,1]):.3f})  rot={rot_deg:.1f}°CW',
-                throttle_duration_sec=0.5,
-            )
-        action_flat = [float(a) for a in np.array(action).flatten()]  # post-rotation (sent to Spot)
+        action_flat = [float(a) for a in np.array(action).flatten()]
         self._tick_record['action'] = action_flat
         self._tick_record['inference_ms'] = round(_inf_ms, 2)
         self._tick_record['action_vx_ms'] = action_flat[0] * self.scale_2d_3d if len(action_flat) > 0 else 0.0
@@ -584,8 +519,8 @@ class DGPPOROSNode(Node):
         # Step 2 — vision → body frame via R(−yaw):
         #   body_fwd  =  v_wx * cos(yaw) + v_wy * sin(yaw)
         #   body_left = −v_wx * sin(yaw) + v_wy * cos(yaw)
-        # Step 3 — proportional-clamp to SPOT_MAX_VEL (SDK hard limit is 2.0 m/s)
-        SPOT_MAX_VEL = 0.5  # m/s — conservative safe limit
+        # Step 3 — proportional-clamp to SPOT_MAX_VEL
+        SPOT_MAX_VEL = 0.5  # m/s
         v_world_x =  float(new_movement_targets[3]) * self.scale_2d_3d   # sim_Y → vision +X
         v_world_y = -float(new_movement_targets[2]) * self.scale_2d_3d   # −sim_X → vision +Y
         v_x_raw =  v_world_x * math.cos(yaw) + v_world_y * math.sin(yaw)  # body forward
@@ -596,14 +531,9 @@ class DGPPOROSNode(Node):
         v_y_target = v_y_raw * scale
 
         # ── Step-test overrides ───────────────────────────────────────────────
-        STEP_VX = 0.4  # m/s forward — safe walking speed for both modes
+        STEP_VX = 0.4  # m/s
 
         if self.get_parameter('step_test_once').get_parameter_value().bool_value:
-            # Single step: command STEP_VX and hold.
-            # Tells you:
-            #   pure delay  → time from step edge to first detectable motion in reported vel
-            #   rise time   → time for reported vel to climb from 0 to ~90% of STEP_VX
-            # Disable with: ros2 param set /dgppo_ros_node step_test_once false
             if self._step_test_t0 is None:
                 self._step_test_t0 = time.time()
             v_x_target = STEP_VX
@@ -613,12 +543,6 @@ class DGPPOROSNode(Node):
                 throttle_duration_sec=0.5,
             )
         elif self.get_parameter('step_test').get_parameter_value().bool_value:
-            # Repeating square wave: 0 → STEP_VX → 0, 4 s per half-cycle.
-            # Tells you:
-            #   phase lag   → cross-correlation peak (automated number on the plot)
-            # 4 s half-period >> expected rise time (~300-500 ms) so Spot fully
-            # settles before each transition — clean edges for xcorr.
-            # Run for ≥30 s (3+ full cycles) for a stable estimate.
             STEP_HALF_PERIOD = 4.0
             if self._step_test_t0 is None:
                 self._step_test_t0 = time.time()
@@ -630,7 +554,7 @@ class DGPPOROSNode(Node):
                 throttle_duration_sec=0.5,
             )
         else:
-            self._step_test_t0 = None  # reset timer when both modes are off
+            self._step_test_t0 = None
 
         _dbg = Float32MultiArray()
         _dbg.data = [
@@ -640,11 +564,9 @@ class DGPPOROSNode(Node):
             float(sim_pos_x),    float(sim_pos_y),    # [6,7]  DGPPO sim pos (scaled)
             float(sim_vel_x),    float(sim_vel_y),    # [8,9]  DGPPO sim vel (scaled)
             float(v_x_target),   float(v_y_target),   # [10,11] cmd to Spot, body frame fwd/left (m/s)
-            float(action_raw_flat[0]) if len(action_raw_flat) > 0 else 0.0,  # [12] pre-rotation policy a[0] (sim-X → right)
-            float(action_raw_flat[1]) if len(action_raw_flat) > 1 else 0.0,  # [13] pre-rotation policy a[1] (sim-Y → fwd)
-            float(_inf_ms),                                                    # [14] DGPPO inference time (ms)
-            float(action_flat[0]) if len(action_flat) > 0 else 0.0,          # [15] post-rotation a[0] (sim-X → right)
-            float(action_flat[1]) if len(action_flat) > 1 else 0.0,          # [16] post-rotation a[1] (sim-Y → fwd)
+            float(action_flat[0]) if len(action_flat) > 0 else 0.0,  # [12] raw policy a[0] (sim-X → right)
+            float(action_flat[1]) if len(action_flat) > 1 else 0.0,  # [13] raw policy a[1] (sim-Y → fwd)
+            float(_inf_ms),                                            # [14] DGPPO inference time (ms)
         ]
         self.state_debug_pub.publish(_dbg)
 
@@ -693,23 +615,18 @@ class DGPPOROSNode(Node):
                                yaw: float = 0.0) -> GraphsTuple:
         self.get_logger().info(f"Agent state (scaled): {agent_state_np}", throttle_duration_sec=0.5)
 
-        n_rays = self.env_instance.params['n_rays']  # 32
+        n_rays = self.env_instance.params['n_rays']          # 32 training beams
+        top_k = self.env_instance.params['top_k_rays']       # 8 closest hits passed to get_graph
         agent_pos_2d = np.array(agent_state_np[0, :2])
 
-        # ── 1. Obstacle hits: resample n_rays_phys bins → n_rays (32) training beams ──
-        # LiDAR ranges are in body frame. Rotate into world (sim) frame by adding yaw.
+        # ── 1. Resample n_rays_phys physical bins → n_rays training-frame beams ──
+        # LiDAR ranges are in body frame. We rotate into world (sim) frame by adding yaw.
         # Spot yaw=0 = facing +X; sim forward = +Y, so add π/2 to align conventions.
         angles_phys = np.linspace(0, 2 * np.pi, self.n_rays_phys, endpoint=False)
         angles_beam = np.linspace(-np.pi, np.pi - 2 * np.pi / n_rays, n_rays)
-        # Sensor bin to look up for training beam at θ_beam (sim world angle):
-        #   φ_sensor = π/2 + yaw − θ_beam
-        # Upside-down mount: +Y_sensor = Spot right → φ_body = −φ_sensor.
-        # Spot +X = Sim +Y: body→world heading offset is π/2, plus robot yaw.
-        # Training lidar is world-frame (no agent yaw in training dirs).
+        # φ_sensor = π/2 + yaw − θ_beam
         ranges_res = np.interp(np.mod(np.pi / 2 + yaw - angles_beam, 2 * np.pi), angles_phys, scaled_ranges)
-        # LIDAR ROTATION VERIFY: min-range beam index and angle tell you where the nearest obstacle
-        # is in the sim world frame. At yaw≈0: idx≈24 (angle≈π/2) = ahead; idx≈16 (angle≈0) = right;
-        # idx≈0/32 (angle≈±π) = left. Log this to verify CW/CCW convention is correct.
+
         _min_idx = int(np.argmin(ranges_res))
         self.get_logger().info(
             f'[LIDAR] min_range={ranges_res[_min_idx]:.2f}sim  '
@@ -717,23 +634,19 @@ class DGPPOROSNode(Node):
             f'(0°=right  90°=fwd  ±180°=left)',
             throttle_duration_sec=1.0,
         )
-        # angles_beam are sim world angles; hits are world-frame positions.
-        obs_hits = np.stack([
+
+        # ── 2. World-frame hit positions for all n_rays beams ──────────────────
+        obs_hits_all = np.stack([
             agent_pos_2d[0] + ranges_res * np.cos(angles_beam),
             agent_pos_2d[1] + ranges_res * np.sin(angles_beam),
         ], axis=1).astype(np.float32)  # (n_rays, 2)
 
-        # ── 2. Terrain boundary hits: zeros (geometry not wired yet) ─────────────
-        bnd_hits = np.zeros((n_rays, 2), dtype=np.float32)
+        # ── 3. Select top_k closest hits (bridges branch expects (1, top_k, 2)) ─
+        dists = np.linalg.norm(obs_hits_all - agent_pos_2d[np.newaxis, :], axis=1)
+        top_k_idx = np.argsort(dists)[:top_k]
+        obs_hits = obs_hits_all[top_k_idx]  # (top_k, 2)
 
-        # ── 3. Flat semantic lidar arrays ─────────────────────────────────────────
-        all_hit_positions = np.concatenate([obs_hits, bnd_hits], axis=0)  # (2*n_rays, 2)
-        all_terrain_ids   = np.ones(2 * n_rays, dtype=np.int32)           # (2*n_rays,) Grass default
-
-        # ── 4. Agent terrain OH from /current_terrain topic (Road=0, Grass=1, Sidewalk=2) ──
-        current_terrain_oh = jax.nn.one_hot(self.latest_terrain_id, 3)  # (3,)
-
-        # ── 5. Cluster one-hots & bearing ─────────────────────────────────────────
+        # ── 4. Cluster one-hots & bearing ─────────────────────────────────────
         current_cluster_oh = jax.nn.one_hot(mapped_current_cluster_id, self.num_clusters)
         start_cluster_oh   = jax.nn.one_hot(mapped_start_cluster_id,   self.num_clusters)
         next_cluster_oh    = jax.nn.one_hot(mapped_next_cluster_id,    self.num_clusters)
@@ -758,22 +671,16 @@ class DGPPOROSNode(Node):
             start_cluster_oh=jnp.array([start_cluster_oh]),
             next_cluster_oh=jnp.array([next_cluster_oh]),
             next_cluster_bonus_awarded=bonus_awarded_updated,
-            # New terrain fields (terrain_bent_bridge)
-            current_terrain_oh=jnp.array([current_terrain_oh]),        # (1, 3)
-            lidar_hit_terrain_ids=jnp.array(all_terrain_ids),          # (2*n_rays,)
-            lidar_hit_positions=jnp.array(all_hit_positions),          # (2*n_rays, 2)
             # Bridge geometry scalars (zeros = no geometry during inference)
             bridge_center=jnp.zeros(2),
             bridge_length=jnp.array(0.0),
             bridge_gap_width=jnp.array(0.0),
             bridge_wall_thickness=jnp.array(0.0),
             bridge_theta=jnp.array(0.0),
-            bridge_bend_angle=jnp.array(0.0),
-            terrain_config=jnp.array(1, dtype=jnp.int32),
         )
 
-        # get_graph takes (n_agents, 2*n_rays, 2) and selects top_k per type internally
-        lidar_data_batched = jnp.array(all_hit_positions[np.newaxis, :, :])  # (1, 2*n_rays, 2)
+        # get_graph expects (n_agents, top_k_rays, 2)
+        lidar_data_batched = jnp.array(obs_hits[np.newaxis, :, :])  # (1, top_k, 2)
         graph = self.env_instance.get_graph(env_state, lidar_data_batched)
         return graph
 
@@ -790,4 +697,3 @@ def main(args=None):
 
 if __name__ == '__main__':
     main()
-
