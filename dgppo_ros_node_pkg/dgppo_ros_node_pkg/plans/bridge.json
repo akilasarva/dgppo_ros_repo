@@ -1,10 +1,6 @@
 {
-  "plan_sequence": [
-  {
-      "start": 1,
-      "next": 2
-  },
-  {
+  "plan_sequence":[
+      {
       "start": 2,
       "next": 3
   }],
