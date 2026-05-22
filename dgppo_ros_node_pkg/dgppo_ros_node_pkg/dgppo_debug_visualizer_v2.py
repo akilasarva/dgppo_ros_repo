@@ -598,9 +598,9 @@ def _build_figure():
         mpatches.Patch(color='#ff4444',       label='slice: density-filtered noise'),
         mpatches.Patch(color=C_LIDAR,         label=f'processed ranges ({NUM_RANGES} bins)'),
         mpatches.Patch(color=C_TOPK,          label=f'top-{TOP_K} closest → policy input'),
-        mpatches.Patch(color=C_ACTION,        label='action direction (unit vec, clipped)'),
-        mpatches.Patch(color=C_RAW_ACTION,    label='pre-rotation policy output (dashed)'),
-        mpatches.Patch(color=C_ROT_ACTION,    label='post-rotation action (sent to Spot)'),
+        mpatches.Patch(color=C_ACTION,        label='action cmd to Spot (body frame, post-rotation)'),
+        mpatches.Patch(color=C_ROT_ACTION,    label='pre-rotation direction (body frame, = action rotated back)'),
+        mpatches.Patch(color=C_RAW_ACTION,    label='raw policy output in sim frame (dashed, no-rotation reference)'),
         mpatches.Patch(color=C_REP_VEL,       label='reported vel  (body frame, unit vec)'),
         mpatches.Patch(color=C_BEARING,       label='plan bearing  (0=FWD=UP)'),
         mpatches.Patch(color=C_HEADING,       label='spot heading  (0=FWD=UP)'),
@@ -943,12 +943,18 @@ def run_desktop(state: DebugState):
                 H['raw_action'] = _arrow((ra_right / ra_mag, ra_fwd / ra_mag), C_RAW_ACTION, 3.0,
                                          linestyle='--')
 
-        # ── Post-rotation action: sd[15]=right, sd[16]=fwd (only when rotation active) ──
-        if sd_now and len(sd_now) >= 17:
-            rot_right, rot_fwd = sd_now[15], sd_now[16]
-            rot_mag = math.hypot(rot_right, rot_fwd)
-            if rot_mag > 0.02:
-                H['rot_action'] = _arrow((rot_right / rot_mag, rot_fwd / rot_mag), C_ROT_ACTION, 4.0)
+        # ── Post-rotation action: C_ACTION (body frame) rotated back by rot_deg → shows
+        #    pre-rotation direction in body frame so gap between this and cyan = rot_deg exactly ──
+        if sd_now and len(sd_now) >= 18 and sd_now[17] != 0.0:
+            rot_deg_vis = sd_now[17]
+            theta_back = math.radians(-rot_deg_vis)  # undo the CW rotation
+            cb, sb = math.cos(theta_back), math.sin(theta_back)
+            # a0 = right (+v_y negated), a1 = fwd (v_x) — body frame from /dgppo_action
+            pre_right = cb * a0 + sb * a1
+            pre_fwd   = -sb * a0 + cb * a1
+            pre_mag   = math.hypot(pre_right, pre_fwd)
+            if pre_mag > 0.02:
+                H['rot_action'] = _arrow((pre_right / pre_mag, pre_fwd / pre_mag), C_ROT_ACTION, 4.0)
 
         # ── Action: atan2(a1_fwd, a0_right) already gives FWD=UP ─────────
         if snap['has_action']:
@@ -1793,11 +1799,16 @@ function draw(d){
     const raMag=Math.hypot(ra0,ra1);
     if(raMag>0.02) drawArrow(Math.atan2(ra1,ra0),sc,cx,cy,'#ff9900',3.0,0.45);
   }
-  // Post-rotation action: sd[15]=right, sd[16]=fwd (only present when rotation active)
-  if(d.state_debug&&d.state_debug.length>=17){
-    const rr0=d.state_debug[15],rr1=d.state_debug[16];
-    const rrMag=Math.hypot(rr0,rr1);
-    if(rrMag>0.02) drawArrow(Math.atan2(rr1,rr0),sc,cx,cy,'#ff4400',4.0);
+  // Pre-rotation direction in body frame: rotate C_ACTION back by rot_deg so the gap
+  // between this and cyan equals exactly action_rotation_deg, both in body frame.
+  if(d.has_action&&d.state_debug&&d.state_debug.length>=18&&d.state_debug[17]!==0){
+    const rotDeg=d.state_debug[17];
+    const thetaBack=-rotDeg*Math.PI/180;
+    const cb=Math.cos(thetaBack),sb=Math.sin(thetaBack);
+    const[a0,a1]=d.action;
+    const preRight=cb*a0+sb*a1, preFwd=-sb*a0+cb*a1;
+    const preMag=Math.hypot(preRight,preFwd);
+    if(preMag>0.02) drawArrow(Math.atan2(preFwd,preRight),sc,cx,cy,'#ff4400',4.0);
   }
   // Action (clipped): atan2(fwd, right) already gives FWD=UP — no offset needed
   if(d.has_action){
@@ -1819,9 +1830,9 @@ function draw(d){
     [slCol2,           slLbl],
     [C.lidar,          'Lidar beams'],
     [C.topk,           'Top-K inputs'],
-    [C.act,            'Action (clipped, unit vec)'],
-    ['#ff9900',        'Pre-rotation policy output (dim)'],
-    ['#ff4400',        'Post-rotation action (sent to Spot)'],
+    [C.act,            'Action cmd (body frame, post-rotation)'],
+    ['#ff4400',        'Pre-rotation dir (body frame, action rotated back)'],
+    ['#ff9900',        'Raw policy sim-frame output (dim, no-rotation ref)'],
     ['#44aaff',        'Reported vel (unit vec)'],
     [C.bear,           'Plan bearing'],
     [C.head,           'Spot heading'],

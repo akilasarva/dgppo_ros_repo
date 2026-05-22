@@ -369,8 +369,8 @@ class DGPPOROSNode(Node):
 
         if self.current_plan_step_index >= len(self.plan_sequence):
             self.get_logger().info("High-level plan is complete. Stopping control loop.")
-            with self._cmd_lock:
-                self._cmd_vel = (0.0, 0.0)
+            # with self._cmd_lock:
+            #     self._cmd_vel = (0.0, 0.0)
             if not self.get_parameter('dry_run').get_parameter_value().bool_value:
                 try:
                     self.command_client.robot_command(command=RobotCommandBuilder.stop_command())
@@ -417,8 +417,8 @@ class DGPPOROSNode(Node):
                 self.spot_yaw_pub.publish(yaw_msg)
                 sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x
                 sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y
-                sim_vel_x = -vel.y / self.scale_2d_3d
-                sim_vel_y =  vel.x / self.scale_2d_3d
+                sim_vel_x = -vel.x / self.scale_2d_3d   # +90° vision-frame rotation then sim-axis swap
+                sim_vel_y = -vel.y / self.scale_2d_3d
                 self.latest_agent_state = jnp.expand_dims(
                     jnp.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=jnp.float32), axis=0
                 )
@@ -447,8 +447,8 @@ class DGPPOROSNode(Node):
         self.spot_yaw_pub.publish(yaw_msg)
         spot_sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x   # Spot Y (left)  → Sim X
         spot_sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y   # Spot X (front) → Sim Y
-        spot_sim_vel_x = -vel.y
-        spot_sim_vel_y =  vel.x
+        spot_sim_vel_x = -vel.x   # +90° vision-frame rotation then sim-axis swap
+        spot_sim_vel_y = -vel.y
         if (self.get_parameter('use_projected_vel').get_parameter_value().bool_value
                 and self._projected_sim_vel is not None
                 and self._projected_sim_pos is not None):
@@ -645,6 +645,7 @@ class DGPPOROSNode(Node):
             float(_inf_ms),                                                    # [14] DGPPO inference time (ms)
             float(action_flat[0]) if len(action_flat) > 0 else 0.0,          # [15] post-rotation a[0] (sim-X → right)
             float(action_flat[1]) if len(action_flat) > 1 else 0.0,          # [16] post-rotation a[1] (sim-Y → fwd)
+            float(rot_deg),                                                    # [17] action_rotation_deg (degrees CW)
         ]
         self.state_debug_pub.publish(_dbg)
 
