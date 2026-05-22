@@ -34,7 +34,7 @@ import time
 # DGPPO and LidarEnv components
 from .dgppo.dgppo.env.lidar_env.lidar_target import (
     LidarTarget, LidarTargetV1, LidarTargetV2, LidarTargetV3, LidarTargetV4,
-    LidarTargetBFLag2, LidarTargetBFLag8, LidarTargetDRTLag12
+    LidarTargetBFLag2, LidarTargetBFLag8,
 )
 from .dgppo.dgppo.env.lidar_env.base import LidarEnvState
 from .dgppo.dgppo.env.lidar_env.base import get_terrain_id as _compute_terrain_id
@@ -61,7 +61,6 @@ class DGPPOROSNode(Node):
         self.declare_parameter('spoof_action_x', 0.0)   # sim-X component [-1,1]: +X = Spot LEFT
         self.declare_parameter('spoof_action_y', 0.0)   # sim-Y component [-1,1]: +Y = Spot FORWARD
         self.declare_parameter('use_projected_vel', False)  # if True: use last action's projected vel (not Spot odometry vel) for next state
-        self.declare_parameter('action_rotation_deg', 0.0)  # rotate action vector CW by this many degrees before sending to Spot
         self.num_clusters = 4
         self.twod_area_size = 1.5
 
@@ -73,7 +72,6 @@ class DGPPOROSNode(Node):
             'LidarTargetV4':     LidarTargetV4,
             'LidarTargetBFLag2': LidarTargetBFLag2,
             'LidarTargetBFLag8': LidarTargetBFLag8,
-            'LidarTargetDRTLag12': LidarTargetDRTLag12,
         }
 
         model_dir = "dgppo/logs/LidarTargetV1/dgppo/BF_weights"
@@ -137,7 +135,6 @@ class DGPPOROSNode(Node):
 
         self.is_first_run = True
         self._projected_sim_vel = None  # last action's projected sim-frame velocity (for use_projected_vel mode)
-        self._projected_sim_pos = None  # last action's projected sim-frame position (for use_projected_vel mode)
 
         self.ranges_sub = self.create_subscription(
             Float32MultiArray,
@@ -370,8 +367,8 @@ class DGPPOROSNode(Node):
 
         if self.current_plan_step_index >= len(self.plan_sequence):
             self.get_logger().info("High-level plan is complete. Stopping control loop.")
-            # with self._cmd_lock:
-            #     self._cmd_vel = (0.0, 0.0)
+            with self._cmd_lock:
+                self._cmd_vel = (0.0, 0.0)
             if not self.get_parameter('dry_run').get_parameter_value().bool_value:
                 try:
                     self.command_client.robot_command(command=RobotCommandBuilder.stop_command())
@@ -418,15 +415,14 @@ class DGPPOROSNode(Node):
                 self.spot_yaw_pub.publish(yaw_msg)
                 sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x
                 sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y
-                sim_vel_x = -vel.x / self.scale_2d_3d   # +90° vision-frame rotation then sim-axis swap
-                sim_vel_y = -vel.y / self.scale_2d_3d
+                sim_vel_x = -vel.y / self.scale_2d_3d
+                sim_vel_y =  vel.x / self.scale_2d_3d
                 self.latest_agent_state = jnp.expand_dims(
                     jnp.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=jnp.float32), axis=0
                 )
             except Exception as e:
                 self.get_logger().warning(f"State read failed while paused: {e}", throttle_duration_sec=2.0)
             self._projected_sim_vel = None  # re-anchor to real odometry when plan resumes
-            self._projected_sim_pos = None
             return
         if mapped_current_cluster == expected_next_cluster:
             self.current_plan_step_index += 1
@@ -446,42 +442,27 @@ class DGPPOROSNode(Node):
         yaw_msg = Float32MultiArray()
         yaw_msg.data = [yaw]
         self.spot_yaw_pub.publish(yaw_msg)
-        spot_sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x   # Spot Y (left)  → Sim X
-        spot_sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y   # Spot X (front) → Sim Y
-        spot_sim_vel_x = -vel.x   # +90° vision-frame rotation then sim-axis swap
-        spot_sim_vel_y = -vel.y
+        sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x   # Spot Y (left)  → Sim X
+        sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y   # Spot X (front) → Sim Y
+        spot_sim_vel_x = -vel.y
+        spot_sim_vel_y =  vel.x
         if (self.get_parameter('use_projected_vel').get_parameter_value().bool_value
-                and self._projected_sim_vel is not None
-                and self._projected_sim_pos is not None):
-            # Single-integrator assumption: next state is fully determined by last action.
-            # Use projected pos+vel instead of Spot's lagged odometry.
-            sim_pos_x, sim_pos_y = self._projected_sim_pos
+                and self._projected_sim_vel is not None):
+            # Single-integrator assumption: velocity is achieved instantaneously, so use
+            # the vel projected from last action rather than Spot's lagged odometry vel.
             sim_vel_x, sim_vel_y = self._projected_sim_vel
             self.get_logger().info(
-                f'[STATE] spot_odom_pos=({spot_sim_pos_x:.3f}, {spot_sim_pos_y:.3f})  '
-                f'proj_pos=({sim_pos_x:.3f}, {sim_pos_y:.3f})  '
-                f'spot_odom_vel=({spot_sim_vel_x:.3f}, {spot_sim_vel_y:.3f})  '
-                f'proj_vel=({sim_vel_x:.3f}, {sim_vel_y:.3f})  [using projected]',
+                f'[VEL] spot_odom=({spot_sim_vel_x:.3f}, {spot_sim_vel_y:.3f})  '
+                f'prev_action_proj=({sim_vel_x:.3f}, {sim_vel_y:.3f})  [using projected]',
                 throttle_duration_sec=0.5,
             )
         else:
-            sim_pos_x = spot_sim_pos_x
-            sim_pos_y = spot_sim_pos_y
             sim_vel_x = spot_sim_vel_x
             sim_vel_y = spot_sim_vel_y
-            self.get_logger().info(
-                f'[STATE] odom_pos=({spot_sim_pos_x:.3f}, {spot_sim_pos_y:.3f})  '
-                f'odom_vel=({spot_sim_vel_x:.3f}, {spot_sim_vel_y:.3f})  [using odometry]',
-                throttle_duration_sec=0.5,
-            )
         vel_body_fwd =  vel.x * math.cos(yaw) + vel.y * math.sin(yaw)   # body +x (forward)
         vel_body_lat = -vel.x * math.sin(yaw) + vel.y * math.cos(yaw)   # body +y (left)
         scaled_latest_state_np = np.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=np.float32)
         self.latest_agent_state = jnp.expand_dims(jnp.array(scaled_latest_state_np), axis=0)
-        self.get_logger().info(
-            f'[GRAPH INPUT] pos=({sim_pos_x:.3f}, {sim_pos_y:.3f})  vel=({sim_vel_x:.3f}, {sim_vel_y:.3f})',
-            throttle_duration_sec=0.5,
-        )
 
         import time as _time
         max_range_val = float(raw_ranges_np.max())
@@ -548,18 +529,7 @@ class DGPPOROSNode(Node):
             action = jnp.array([[sx, sy]], dtype=jnp.float32)
             self.get_logger().info(f'[SPOOF] action x={sx:.3f}  y={sy:.3f}', throttle_duration_sec=0.5)
         action = self.clip_action(action)
-        action_raw_flat = [float(a) for a in np.array(action).flatten()]  # pre-rotation policy output
-        rot_deg = self.get_parameter('action_rotation_deg').get_parameter_value().double_value
-        if rot_deg != 0.0:
-            theta = math.radians(rot_deg)  # positive = CW
-            c, s = math.cos(theta), math.sin(theta)
-            ax, ay = action_raw_flat[0], action_raw_flat[1]
-            action = jnp.array([[c * ax + s * ay, -s * ax + c * ay]], dtype=jnp.float32)
-            self.get_logger().info(
-                f'[ACTION ROT] raw=({ax:.3f}, {ay:.3f})  rotated=({float(action[0,0]):.3f}, {float(action[0,1]):.3f})  rot={rot_deg:.1f}°CW',
-                throttle_duration_sec=0.5,
-            )
-        action_flat = [float(a) for a in np.array(action).flatten()]  # post-rotation (sent to Spot)
+        action_flat = [float(a) for a in np.array(action).flatten()]
         self._tick_record['action'] = action_flat
         self._tick_record['inference_ms'] = round(_inf_ms, 2)
         self._tick_record['action_vx_ms'] = action_flat[0] * self.scale_2d_3d if len(action_flat) > 0 else 0.0
@@ -568,7 +538,6 @@ class DGPPOROSNode(Node):
         self._debug_log_file.flush()
 
         new_movement_targets = jnp.squeeze(self.agent_step_euler(self.latest_agent_state, action), axis=0)
-        self._projected_sim_pos = (float(new_movement_targets[0]), float(new_movement_targets[1]))
         self._projected_sim_vel = (float(new_movement_targets[2]), float(new_movement_targets[3]))
 
         reward, bonus_awarded_updated = self.env_instance.get_reward(graph, action)
@@ -641,12 +610,9 @@ class DGPPOROSNode(Node):
             float(sim_pos_x),    float(sim_pos_y),    # [6,7]  DGPPO sim pos (scaled)
             float(sim_vel_x),    float(sim_vel_y),    # [8,9]  DGPPO sim vel (scaled)
             float(v_x_target),   float(v_y_target),   # [10,11] cmd to Spot, body frame fwd/left (m/s)
-            float(action_raw_flat[0]) if len(action_raw_flat) > 0 else 0.0,  # [12] pre-rotation policy a[0] (sim-X → right)
-            float(action_raw_flat[1]) if len(action_raw_flat) > 1 else 0.0,  # [13] pre-rotation policy a[1] (sim-Y → fwd)
-            float(_inf_ms),                                                    # [14] DGPPO inference time (ms)
-            float(action_flat[0]) if len(action_flat) > 0 else 0.0,          # [15] post-rotation a[0] (sim-X → right)
-            float(action_flat[1]) if len(action_flat) > 1 else 0.0,          # [16] post-rotation a[1] (sim-Y → fwd)
-            float(rot_deg),                                                    # [17] action_rotation_deg (degrees CW)
+            float(action_flat[0]) if len(action_flat) > 0 else 0.0,  # [12] raw policy a[0] (sim-X → right)
+            float(action_flat[1]) if len(action_flat) > 1 else 0.0,  # [13] raw policy a[1] (sim-Y → fwd)
+            float(_inf_ms),                                            # [14] DGPPO inference time (ms)
         ]
         self.state_debug_pub.publish(_dbg)
 
