@@ -924,13 +924,12 @@ def run_desktop(state: DebugState):
         # Heading: robot forward is always UP in body frame — constant, never rotates.
         H['heading'] = _arrow((0, 1), C_HEADING, 3.0)
 
-        # Bearing: world-frame direction in body-frame display.
-        # As robot rotates, arrow tracks the fixed sim-world direction (like a compass).
-        # Requires world_alpha to correctly map sim→physical body frame.
+        # Bearing: sim-frame world direction in body-frame display.
+        # Subtracting yaw keeps the arrow world-frame rigid (tracks as robot rotates).
+        # No world_alpha: bearing=0 stays +x (right), π/2 stays +y (up) in sim convention.
         if bearing_rad is not None:
             yaw_off = spot_yaw if spot_yaw is not None else 0.0
-            world_alpha = snap.get('world_alpha_rad', 0.0)
-            a = bearing_rad - world_alpha - yaw_off
+            a = bearing_rad - yaw_off
             H['bearing'] = _arrow((math.cos(a), math.sin(a)), C_BEARING, 3.0)
 
         # ── Reported velocity (body frame): fwd=sd[4], lat=sd[5] positive-left ──
@@ -1787,12 +1786,11 @@ function draw(d){
   // Arrows: body-frame display.
   // Heading: robot forward is always UP — constant, never rotates.
   drawArrow(Math.PI/2, sc, cx, cy, C.head, 3.5);
-  // Bearing: world-frame direction in body-frame display (tracks sim direction as robot rotates).
-  // display_angle = bearing − world_alpha − yaw
+  // Bearing: sim-frame world direction. Yaw subtracted keeps it world-rigid; no world_alpha
+  // so bearing=0=right, π/2=up in sim convention.
   if(d.bearing_rad!=null){
     const yawOff=d.spot_yaw!=null?d.spot_yaw:0;
-    const worldAlpha=d.world_alpha_rad!=null?d.world_alpha_rad:0;
-    drawArrow(d.bearing_rad-worldAlpha-yawOff,sc,cx,cy,C.bear,3.5);
+    drawArrow(d.bearing_rad-yawOff,sc,cx,cy,C.bear,3.5);
   }
 
   // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
