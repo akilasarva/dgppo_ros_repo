@@ -71,7 +71,8 @@ class LiveClusterInferenceNode(Node):
         super().__init__('live_cluster_inference_node')
 
         # --- Configuration Parameters (must match training script) ---
-        training_data_name = "livox1"
+        self.declare_parameter('training_data_name', 'livox1')
+        training_data_name = self.get_parameter('training_data_name').get_parameter_value().string_value
         self.embedding_size = 16
         self.num_ranges = 72
         self.max_lidar_range = 8

@@ -1,4 +1,9 @@
+import os
 from setuptools import find_packages, setup
+
+# Ensure data_files relative paths resolve from the source directory,
+# regardless of the CWD colcon uses when invoking setup.py install.
+os.chdir(os.path.dirname(os.path.abspath(__file__)))
 
 package_name = 'dgppo_ros_node_pkg'
 

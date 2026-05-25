@@ -1,0 +1,68 @@
+# Per-environment semantic-mode <-> HDBSCAN-cluster-id taxonomy.
+# Environment: CARLA building scenario using the livox1 clustering model.
+#
+# Cluster ID mapping (raw livox1 HDBSCAN IDs → dgppo canonical IDs via _map_cluster_id):
+#   [0, 1]              → canonical 0  (Open Space)
+#   [2, 3, 10, 11]      → canonical 1  (Building Approach)
+#   [5, 6, 7, 8, 9, 12] → canonical 2  (In Building / Corridor)
+#   [-1, 4]             → canonical 3  (Building Exit / Along Wall)
+#
+# The 'modes' section lists raw HDBSCAN IDs; the FIRST id is what brain_controller
+# watches for arrival on /predicted_cluster. The canonical IDs (keys in 'centroids'
+# and 'bearing_map') are the dgppo-internal 0-3 IDs produced by _map_cluster_id.
+#
+# IMPORTANT: Update raw cluster IDs if the clustering model is retrained.
+# Centroid positions (CARLA world frame, x/y in metres) come from building_plan.json.
+
+environment: building1_carla
+source: clustering/clustering/encoder_weights/livox1/cluster_id_to_label_livox1.json
+
+grid_origin: [55.0, -270.0]
+grid_scale: 47.0
+startup_yaw_deg: 0.0
+default_model_dir: "dgppo/logs/LidarTarget/dgppo/terrain_bent_bridge"
+
+# Which policy type each model uses (key into dgppo_id_maps below)
+model_types:
+  "dgppo/logs/LidarTarget/dgppo/terrain_bent_bridge": bridge
+
+# Raw HDBSCAN cluster ID → dgppo one-hot slot (0-3), per policy.
+# bridge: 0=open_space, 1=approach, 2=in_building/corridor, 3=exit
+dgppo_id_maps:
+  bridge:
+    0: 0
+    1: 0
+    2: 1
+    3: 1
+    10: 1
+    11: 1
+    5: 2
+    6: 2
+    7: 2
+    8: 2
+    9: 2
+    12: 2
+    -1: 3
+    4: 3
+
+modes:
+  "Open Space":          [0, 1]
+  "Building Approach":   [2, 3, 10, 11]
+  "In Building":         [5, 6, 7, 8, 9, 12]
+  "Building Exit":       [4, -1]
+
+# Centroids keyed by raw canonical ID (first cluster ID per mode).
+# Run tools/map_picker.py to calibrate real CARLA world positions.
+centroids:
+  "0": [90.0, -140.0, 0.0]   # Open Space        (raw canonical 0)
+  "2": [33.0, -270.0, 0.0]   # Building Approach (raw canonical 2)
+  "5": [40.0, -270.0, 0.0]   # In Building       (raw canonical 5)
+  "4": [40.0, -270.0, 0.0]   # Building Exit     (raw canonical 4)
+
+# Bearings in degrees relative to startup_yaw_deg.  Keys use raw canonical IDs.
+bearing_map:
+  "0-2": 270.0   # Open Space → Building Approach (right)
+  "2-5":   0.0   # Building Approach → In Building (straight)
+  "5-4":   0.0   # In Building → Building Exit (straight)
+  "4-5": 270.0   # Building Exit → In Building (right)
+  "4-2": 270.0   # Building Exit → Building Approach (right)

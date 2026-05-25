@@ -15,7 +15,58 @@
 #   retrained for a new environment.
 
 environment: livox1
+clustering_weights: livox1
 source: clustering/clustering/encoder_weights/livox1/cluster_id_to_label_livox1.json
+
+# CARLA grid parameters for dgppo_ros_node coordinate transforms.
+# grid_origin: CARLA world (x, y) that maps to model-space [0, 0].
+# grid_scale: CARLA metres per model unit; model grid is 1.5×1.5 → covers 70.5 m.
+# startup_yaw_deg: CARLA yaw of ego vehicle at spawn = bearing 0° (run map_picker.py to set).
+# default_model_dir: DGPPO policy to load for all steps (override per-step via step_models).
+grid_origin: [55.0, -210.0]
+grid_scale: 47.0
+startup_yaw_deg: 0.0
+default_model_dir: "dgppo/logs/LidarTarget/dgppo/91inter"
+
+# Which policy type each model uses (key into dgppo_id_maps below)
+model_types:
+  "dgppo/logs/LidarTarget/dgppo/91inter": intersection
+  "dgppo/logs/LidarTarget/dgppo/terrain_bent_bridge": bridge
+
+# Raw HDBSCAN cluster ID → dgppo one-hot slot (0-3), per policy.
+# intersection: 0=on_road, 1=approach/enter, 2=in_intersection, 3=exit
+# bridge:       0=open_space, 1=approach_bridge, 2=on_bridge, 3=exit_bridge
+dgppo_id_maps:
+  intersection:
+    5: 0
+    6: 0
+    8: 0
+    9: 0
+    10: 0
+    11: 0
+    12: 0
+    3: 0
+    4: 0
+    7: 1
+    0: 2
+    1: 2
+    2: 2
+    -1: 3
+  bridge:
+    0: 0
+    1: 0
+    2: 1
+    3: 1
+    10: 1
+    11: 1
+    5: 2
+    6: 2
+    7: 2
+    8: 2
+    9: 2
+    12: 2
+    -1: 3
+    4: 3
 
 modes:
   "Road: On":                      [5, 6, 8, 9, 10, 11, 12]
@@ -24,3 +75,21 @@ modes:
   "Intersection: Exit":            [7]
   "Open Space":                    [3, 4]
   "Along Wall":                    [-1]
+
+# Centroids keyed by raw canonical ID (first cluster ID per mode).
+# Run tools/map_picker.py to calibrate real CARLA world positions.
+centroids:
+  "5":  [117.5, -210.0, 0.0]   # Road: On              (raw canonical 5)
+  "7":  [97.5,  -190.0, 0.0]   # Intersection Approach (raw canonical 7)
+  "0":  [97.5,  -210.0, 0.0]   # Intersection In       (raw canonical 0)
+  "3":  [102.5, -210.0, 0.0]   # Open Space            (raw canonical 3)
+
+# Bearings in degrees RELATIVE to startup_yaw_deg.  Keys use raw canonical IDs.
+# 0=straight, 90=left, 270=right.
+# Re-run tools/map_picker.py to calibrate for your actual spawn orientation.
+bearing_map:
+  "5-7":  90.0   # Road → Intersection Approach (left)
+  "7-0":   0.0   # Approach → Intersection In   (straight through)
+  "0-7": 180.0   # Intersection In → Approach   (U-turn)
+  "7-5": 270.0   # Approach → Road (right = back)
+  "3-5":   0.0   # Open Space → Road

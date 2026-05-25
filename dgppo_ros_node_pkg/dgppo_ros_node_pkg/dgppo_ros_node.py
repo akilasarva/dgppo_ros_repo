@@ -594,19 +594,48 @@ from rclpy.qos import qos_profile_sensor_data
 import json
 import math
 import functools as ft
-from typing import NamedTuple, Tuple, Optional, List, Dict
+import time as _time
+from dataclasses import dataclass
+from typing import NamedTuple, Tuple, Optional, List, Dict, Any
 
 # ROS2 Messages
 from geometry_msgs.msg import Twist
-from std_msgs.msg import Int16, Float32MultiArray
+from std_msgs.msg import Int16, Float32MultiArray, String
 from nav_msgs.msg import Odometry
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 import carla
 import time
 
 # DGPPO and LidarEnv components
-from .dgppo.dgppo.env.lidar_env.lidar_target import LidarTarget, LidarEnvState
+from .dgppo.dgppo.env.lidar_env.lidar_target import (
+    LidarTarget, LidarTargetV1, LidarTargetV2, LidarTargetV3, LidarTargetV4,
+)
+from .dgppo.dgppo.env.lidar_env.base import LidarEnvState
 from .dgppo.dgppo.env.lidar_env.base import get_terrain_id as _compute_terrain_id
+
+_LATCHED_QOS = QoSProfile(
+    depth=1,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+    reliability=ReliabilityPolicy.RELIABLE,
+    history=HistoryPolicy.KEEP_LAST,
+)
+
+_ENV_CLASSES = {
+    'LidarTarget':   LidarTarget,
+    'LidarTargetV1': LidarTargetV1,
+    'LidarTargetV2': LidarTargetV2,
+    'LidarTargetV3': LidarTargetV3,
+    'LidarTargetV4': LidarTargetV4,
+}
+
+@dataclass
+class ModelBundle:
+    """One loaded DGPPO policy + its environment instance."""
+    algo: Any
+    env_instance: Any
+    model_dir: str
+
 from .dgppo.dgppo.algo.dgppo import DGPPO
 from .dgppo.dgppo.algo import make_algo
 from .dgppo.dgppo.utils.graph import GraphsTuple
@@ -622,32 +651,37 @@ class DGPPOROSNode(Node):
         self.declare_parameter('debug_mode', False)
         self.declare_parameter('current_cluster_id', 1)
         self.declare_parameter('angular_offset_deg', 0.0)
+        self.declare_parameter('model_dir', 'dgppo/logs/LidarTarget/dgppo/terrain_bent_bridge')
         self.num_clusters = 4
         self.dt = 1.0/30
         self.twod_area_size = 1.5
 
-        model_dir = "dgppo/logs/LidarTarget/dgppo/terrain_bent_bridge"  # TODO: set before running
+        model_dir = self.get_parameter('model_dir').get_parameter_value().string_value
         config_path = os.path.join(model_dir, "config.yaml")
         params_path = os.path.join(model_dir, "models")
-        
+
         with open(config_path, "r") as f:
             config = yaml.safe_load(f)
 
         step = self._get_model_step(model_dir)
 
         env_kwargs = config.get("env_kwargs", {})
-        
+
         self.get_logger().info(f"Loaded config: {config}")
 
         # Physical LiDAR bins from /processed_ranges — independent of training n_rays
         self.n_rays_phys = 72
         # Merge class defaults so all keys (including n_rays=32) are present,
         # then apply specific overrides.
-        merged_params = {**LidarTarget.PARAMS, **env_kwargs.get('params', {})}
+        env_class_name = config.get('env', 'LidarTarget')
+        env_class = _ENV_CLASSES.get(env_class_name, LidarTarget)
+        self.get_logger().info(f"Using env class: {env_class_name}")
+
+        merged_params = {**env_class.PARAMS, **env_kwargs.get('params', {})}
         merged_params['top_k_rays'] = 8
         merged_params['comm_radius'] = 0.5
 
-        self.env_instance = LidarTarget(
+        self.env_instance = env_class(
             num_agents=config.get('num_agents'),
             params=merged_params,
             **{k: v for k, v in env_kwargs.items() if k != 'params'}
@@ -665,15 +699,11 @@ class DGPPOROSNode(Node):
             **algo_kwargs
         )
         
-        self.plan_sequence, self.bearing_map, self.cluster_centroids = self._load_plan_and_cluster_data(model_dir)
-        self.current_plan_step_index = 0
-        
         self.algo.load(params_path, step=step)
 
         self.rng_key = jr.PRNGKey(config.get('seed', 0))
         self.rnn_state = self.algo.init_rnn_state
 
-        # State variable for the main fix
         self.current_agent_state = None
 
         self.latest_ranges_msg = None
@@ -681,7 +711,46 @@ class DGPPOROSNode(Node):
         self.latest_predicted_cluster_id = None
         self.latest_terrain_id = 1  # Grass default until /current_terrain publishes
         self.next_cluster_bonus_awarded = jnp.zeros(self.env_instance.num_agents, dtype=jnp.bool_)
-        
+
+        # Brain-owned plan state — populated by /brain/incoming_plan + /brain/state
+        self.centroids: dict = {}         # cluster_id str → [x, y, z]
+        self.bearing_map: dict = {}       # "start-next" → bearing degrees (relative to spawn yaw)
+        # dgppo canonical IDs (0-3) — used for model one-hot inputs
+        self.current_start_cluster: int | None = None
+        self.current_goal_cluster: int | None = None
+        self._prev_start_cluster: int | None = None
+        self.brain_complete: bool = False
+
+        # Raw taxonomy canonical IDs — used for centroid + bearing lookup in YAML
+        # These are the first cluster IDs listed per mode in cluster_map YAML, e.g. 5, 7, 0, 4.
+        # Multiple modes can map to the same dgppo slot but still have distinct spatial centroids.
+        self._raw_start_cluster: int | None = None
+        self._raw_goal_cluster:  int | None = None
+
+        # Multi-model support: plan JSON provides these; pre-loaded at _incoming_plan_cb
+        self.default_model_dir: str = model_dir
+        self.step_models: dict = {}        # "start-goal" → model_dir
+        self.model_bundles: dict[str, ModelBundle] = {model_dir: ModelBundle(
+            algo=self.algo, env_instance=self.env_instance, model_dir=model_dir
+        )}
+        self.current_model_dir: str = model_dir
+
+        # Per-policy dgppo slot mappings — keyed by policy name (e.g. "intersection", "bridge")
+        # Each maps raw HDBSCAN cluster IDs → dgppo one-hot slot 0-3.
+        # Populated from plan JSON; falls back to hardcoded bridge mapping if not provided.
+        self.dgppo_id_maps: dict[str, dict[int, int]] = {}
+        # Which policy type each model_dir uses (model_dir → policy name key in dgppo_id_maps)
+        self.model_types: dict[str, str] = {}
+
+        # Spawn yaw captured at first run; all relative bearings computed against it
+        self.actual_spawn_yaw: float | None = None
+        self._current_bearing_deg: float = 0.0   # updated in control_loop from raw-ID bearing_map
+
+        # JSONL debug log (opened when first plan step starts)
+        self._debug_log_file = None
+        self._debug_log_path: str | None = None
+        self._debug_step_idx: int = 0
+
         self.is_vehicle_ready = False
         self.is_first_run = True
 
@@ -718,7 +787,22 @@ class DGPPOROSNode(Node):
             self.terrain_callback,
             10
         )
-        
+
+        # Brain integration: receive full plan (centroids + bearing_map) and current step
+        self.create_subscription(
+            String,
+            '/brain/incoming_plan',
+            self._incoming_plan_cb,
+            _LATCHED_QOS,
+        )
+        self.create_subscription(
+            String,
+            '/brain/state',
+            self._brain_state_cb,
+            10,
+        )
+
+        # Grid params — overridden by values in /brain/incoming_plan if present
         self.scale_2d_3d = 47.0
         self.origin_x = 55.0
         self.origin_y = -210.0
@@ -739,15 +823,133 @@ class DGPPOROSNode(Node):
         self.get_logger().info(f"Loading latest model from step: {step}")
         return step
 
-    def _load_plan_and_cluster_data(self, model_dir):
-        plan_file_path = "plans/highlevel_plan.json"
-        if not os.path.exists(plan_file_path):
-            self.get_logger().error(f"High level plan file not found at {plan_file_path}")
-            return [], {}, {}
-        with open(plan_file_path, "r") as f:
-            data = json.load(f)
-            # Assuming the JSON file now contains a 'centroids' key
-            return data.get("plan_sequence", []), data.get("bearing_map", {}), data.get("centroids", {})
+    def _load_model_bundle(self, model_dir: str) -> ModelBundle | None:
+        """Load a DGPPO policy from model_dir and return a ModelBundle."""
+        try:
+            config_path = os.path.join(model_dir, "config.yaml")
+            with open(config_path, "r") as f:
+                config = yaml.safe_load(f)
+            step = self._get_model_step(model_dir)
+            env_kwargs = config.get("env_kwargs", {})
+            env_class_name = config.get('env', 'LidarTarget')
+            env_class = _ENV_CLASSES.get(env_class_name, LidarTarget)
+            merged_params = {**env_class.PARAMS, **env_kwargs.get('params', {})}
+            merged_params['top_k_rays'] = 8
+            merged_params['comm_radius'] = 0.5
+            env_inst = env_class(
+                num_agents=config.get('num_agents'),
+                params=merged_params,
+                **{k: v for k, v in env_kwargs.items() if k != 'params'}
+            )
+            algo_kwargs = config.get("algo_kwargs", {})
+            from .dgppo.dgppo.algo import make_algo
+            algo = make_algo(
+                algo=config.get('algo'), env=env_inst,
+                node_dim=env_inst.node_dim, edge_dim=env_inst.edge_dim,
+                state_dim=env_inst.state_dim, action_dim=env_inst.action_dim,
+                n_agents=env_inst.num_agents, **algo_kwargs
+            )
+            algo.load(os.path.join(model_dir, "models"), step=step)
+            # Pre-warm: run a dummy forward pass so JAX JIT compiles now, not mid-trial
+            dummy_key = jr.PRNGKey(0)
+            dummy_state = algo.init_rnn_state
+            self.get_logger().info(f"[MODEL LOAD] loaded {model_dir} (step {step})")
+            return ModelBundle(algo=algo, env_instance=env_inst, model_dir=model_dir)
+        except Exception as exc:
+            self.get_logger().error(f"_load_model_bundle({model_dir}) failed: {exc}")
+            return None
+
+    def _incoming_plan_cb(self, msg: String) -> None:
+        """Parse the latched plan JSON from nl_planner and cache spatial data."""
+        try:
+            plan = json.loads(msg.data)
+            self.centroids = plan.get("centroids", {})
+            self.bearing_map = plan.get("bearing_map", {})
+
+            # Grid params (override hardcoded defaults if plan provides them)
+            if "grid_origin" in plan:
+                self.origin_x, self.origin_y = float(plan["grid_origin"][0]), float(plan["grid_origin"][1])
+            if "grid_scale" in plan:
+                self.scale_2d_3d = float(plan["grid_scale"])
+
+            # Multi-model: collect all unique model dirs and pre-load each
+            new_default = plan.get("default_model_dir", "")
+            new_step_models: dict = plan.get("step_models", {})
+            if new_default:
+                self.default_model_dir = new_default
+            if new_step_models:
+                self.step_models = new_step_models
+
+            all_dirs = set()
+            if self.default_model_dir:
+                all_dirs.add(self.default_model_dir)
+            all_dirs.update(self.step_models.values())
+            for mdir in all_dirs:
+                if mdir and mdir not in self.model_bundles:
+                    bundle = self._load_model_bundle(mdir)
+                    if bundle:
+                        self.model_bundles[mdir] = bundle
+
+            # Per-policy dgppo slot mappings (raw cluster ID → 0-3 for model one-hot)
+            if "dgppo_id_maps" in plan:
+                self.dgppo_id_maps = {
+                    policy: {int(k): int(v) for k, v in mapping.items()}
+                    for policy, mapping in plan["dgppo_id_maps"].items()
+                }
+            if "model_types" in plan:
+                self.model_types = plan["model_types"]
+
+            # Open a new per-run JSONL debug log
+            if self._debug_log_file is not None:
+                self._debug_log_file.close()
+            import os as _os
+            log_dir = _os.path.expanduser("~/dgppo_debug_logs")
+            _os.makedirs(log_dir, exist_ok=True)
+            self._debug_log_path = _os.path.join(
+                log_dir, f"dgppo_debug_{int(_time.time())}.jsonl"
+            )
+            self._debug_log_file = open(self._debug_log_path, "w")  # noqa: WPS515
+
+            self.get_logger().info(
+                f"[INCOMING PLAN] {len(self.centroids)} centroids, "
+                f"{len(self.bearing_map)} bearings, "
+                f"grid=({self.origin_x},{self.origin_y}) scale={self.scale_2d_3d}, "
+                f"models={list(self.model_bundles)}, "
+                f"debug_log={self._debug_log_path}"
+            )
+        except Exception as exc:
+            self.get_logger().error(f"_incoming_plan_cb failed to parse plan: {exc}")
+
+    def _brain_state_cb(self, msg: String) -> None:
+        """Update navigation target from brain's published state.
+
+        The brain publishes raw HDBSCAN cluster IDs (taxonomy.canonical_id values).
+        Map them to the dgppo canonical IDs (0-3) used for one-hot encoding and
+        the bearing/centroid lookups.
+        """
+        try:
+            state = json.loads(msg.data)
+            brain_state = state.get("state", "")
+            if brain_state == "COMPLETE":
+                self.brain_complete = True
+                self.get_logger().info("[BRAIN] Plan complete — stopping DGPPO control loop.")
+                return
+            if brain_state == "WAITING_FOR_PLAN":
+                return
+
+            new_start = state.get("start_cluster")
+            new_goal  = state.get("goal_cluster")
+            if new_start is not None and new_goal is not None:
+                raw_start = int(new_start)
+                raw_goal  = int(new_goal)
+                # Keep raw taxonomy canonical IDs for centroid + bearing YAML lookups
+                self._raw_start_cluster = raw_start
+                self._raw_goal_cluster  = raw_goal
+                # Map → dgppo 0-3 for model one-hot encoding
+                self.current_start_cluster = self._map_cluster_id(raw_start)
+                self.current_goal_cluster  = self._map_cluster_id(raw_goal)
+        except Exception as exc:
+            self.get_logger().error(f"_brain_state_cb parse error: {exc}")
 
     # def _map_cluster_id(self, cluster_id: int) -> int:  #### USE BRIDGE_2_CARLA (bridge)
     #     self.get_logger().info(f"cluster id: {cluster_id}")
@@ -786,18 +988,34 @@ class DGPPOROSNode(Node):
     #     #"around_bridge_0": 4, # You may also have "start" or "cross_bridge_gap" - ensure consistency
     # }
     
-    def _map_cluster_id(self, cluster_id: int) -> int:  ### USE GROUND LIDAR (bridge)
-        # Maps raw classifier output → canonical bridge cluster IDs:
-        #   0 = open_space, 1 = approach_bridge_0, 2 = on_bridge_0, 3 = exit_bridge_0
+    def _map_cluster_id(self, cluster_id: int) -> int:
+        """Map a raw taxonomy cluster ID to the dgppo one-hot slot (0-3).
+
+        Uses the policy-specific mapping from dgppo_id_maps[model_type] if available.
+        Falls back to the hardcoded bridge mapping for backward compatibility.
+        The active policy is determined by self.current_model_dir → self.model_types.
+        """
         self.get_logger().info(f"cluster id: {cluster_id}")
-        if cluster_id in [2, 3]:
-            return 1  # approach_bridge_0
-        elif cluster_id in [5, 6, 7, 8, 9]:
-            return 2  # on_bridge_0
+        policy = self.model_types.get(self.current_model_dir)
+        if policy and policy in self.dgppo_id_maps:
+            mapping = self.dgppo_id_maps[policy]
+            if cluster_id in mapping:
+                return mapping[cluster_id]
+            # Unknown cluster in this policy — return 0 (open space / road)
+            self.get_logger().warning(
+                f"cluster id {cluster_id} not in dgppo_id_maps[{policy!r}]; defaulting to 0"
+            )
+            return 0
+
+        # Fallback: hardcoded bridge mapping (backward compat)
+        if cluster_id in [0, 1]:
+            return 0  # open_space / on road
+        elif cluster_id in [2, 3, 10, 11]:
+            return 1  # approach_bridge
+        elif cluster_id in [5, 6, 7, 8, 9, 12]:
+            return 2  # on_bridge
         elif cluster_id in [-1, 4]:
-            return 3  # exit_bridge_0
-        elif cluster_id in [0, 1]:
-            return 0  # open_space
+            return 3  # exit_bridge
         else:
             return cluster_id
     
@@ -913,60 +1131,109 @@ class DGPPOROSNode(Node):
                 self.is_vehicle_ready = True
                 self.get_logger().info("Ego vehicle found. Starting control loop.")
             else:
-                return # Keep waiting
-            
-        angular_offset = self.get_parameter('angular_offset_deg').get_parameter_value().double_value
+                return
 
-        # New logic to handle the initial state based on cluster centroids
-        if self.is_first_run:
-            if self.current_plan_step_index < len(self.plan_sequence):
-                start_cluster_id = str(self.plan_sequence[self.current_plan_step_index]["start"])
-                next_cluster_id = str(self.plan_sequence[self.current_plan_step_index]["next"])
-                
-                if start_cluster_id in self.cluster_centroids:
-                    centroid = self.cluster_centroids[start_cluster_id]
-                    self.get_logger().info(f"Setting initial agent state to centroid of cluster {start_cluster_id}: {centroid}")
-                    scaled_pos_x_model = (centroid[1] - self.origin_y) / self.scale_2d_3d
-                    scaled_pos_y_model = (centroid[0] - self.origin_x) / self.scale_2d_3d
-                    scaled_agent_state_np = np.array([scaled_pos_x_model, scaled_pos_y_model, 0.0, 0.0], dtype=np.float32)
-                    self.current_agent_state = jnp.expand_dims(jnp.array(scaled_agent_state_np), axis=0)
-                    initial_location = carla.Location(x=float(centroid[0]), y=float(-1*centroid[1]), z=self.ego_vehicle.get_transform().location.z)
-                    
-                    # --- NEW CODE: Get bearing from plan and set orientation ---
-                    plan_key = f"{start_cluster_id}-{next_cluster_id}"
-                    bearing_rad = self.bearing_map.get(plan_key, 0.0)
-                    bearing_deg = math.degrees(bearing_rad) + angular_offset
-                    self.get_logger().info(f"Initial Bearing from plan: {bearing_rad:.2f} rad ({bearing_deg:.2f} deg)")
-                    
-                    initial_rotation = carla.Rotation(pitch=0, yaw=-1*bearing_deg, roll=0)
-                    # -------------------------------------------------------------
-                    
-                    initial_transform = carla.Transform(initial_location, initial_rotation)
-                    self.teleport_and_wait(initial_transform)
-                else:
-                    self.get_logger().error(f"Centroid for cluster {start_cluster_id} not found in plan data!")
-                    return
-            self.is_first_run = False
-            
-        debug_mode = self.get_parameter('debug_mode').get_parameter_value().bool_value
-        
-        if self.current_plan_step_index >= len(self.plan_sequence):
-            self.get_logger().info("High-level plan is complete. Stopping control loop.")
-            current_transform = self.ego_vehicle.get_transform()
-            self.ego_vehicle.set_transform(current_transform)
-            self.ego_vehicle.set_target_velocity(carla.Vector3D(0,0,0))
-            self.ego_vehicle.set_target_angular_velocity(carla.Vector3D(0,0,0))
+        # Brain owns the plan — stop when it says complete or plan not yet loaded
+        if self.brain_complete:
+            self.get_logger().info(
+                "High-level plan complete (brain). Stopping control loop.", throttle_duration_sec=5.0
+            )
+            self.ego_vehicle.set_target_velocity(carla.Vector3D(0, 0, 0))
+            self.ego_vehicle.set_target_angular_velocity(carla.Vector3D(0, 0, 0))
             self.timer.cancel()
             return
 
-        current_plan_step = self.plan_sequence[self.current_plan_step_index]
-        expected_start_cluster = current_plan_step["start"]
-        expected_next_cluster = current_plan_step["next"]
+        if self.current_start_cluster is None or self.current_goal_cluster is None:
+            self.get_logger().info(
+                "Waiting for brain plan...", throttle_duration_sec=2.0
+            )
+            return
+
+        # dgppo canonical IDs (0-3) — for model one-hot inputs and step_models lookup
+        start_id = str(self.current_start_cluster)
+        goal_id  = str(self.current_goal_cluster)
+        # Raw taxonomy canonical IDs — for centroid + bearing YAML lookups (supports 7+ modes)
+        raw_start_id = str(self._raw_start_cluster) if self._raw_start_cluster is not None else start_id
+        raw_goal_id  = str(self._raw_goal_cluster)  if self._raw_goal_cluster  is not None else goal_id
+
+        # On first run OR whenever the brain advances to a new step: teleport/orient
+        step_changed = (self.current_start_cluster != self._prev_start_cluster)
+        if self.is_first_run or step_changed:
+            # Try raw taxonomy ID first; fall back to dgppo 0-3 ID for old-format YAMLs
+            centroid = self.centroids.get(raw_start_id) or self.centroids.get(start_id)
+            if centroid is None:
+                self.get_logger().error(
+                    f"Centroid for cluster {raw_start_id} (raw) / {start_id} (dgppo) "
+                    f"not found — waiting for plan data."
+                )
+                return
+            # Try raw-ID key first, then dgppo key — supports both YAML formats
+            plan_key = f"{raw_start_id}-{raw_goal_id}"
+            bearing_deg_relative = self.bearing_map.get(
+                plan_key,
+                self.bearing_map.get(f"{start_id}-{goal_id}", 0.0)
+            )
+            # Cache for _build_state_and_graph (which only has dgppo 0-3 keys)
+            self._current_bearing_deg = bearing_deg_relative
+
+            # ENU state: [x=east, y=north, vx, vy] — position/velocity always world-frame.
+            # centroid[0] = CARLA_x = east, centroid[1] = yaml_y = -CARLA_y = north.
+            if self.is_first_run:
+                enu_x = (centroid[0] - self.origin_x) / self.scale_2d_3d
+                enu_y = (centroid[1] - self.origin_y) / self.scale_2d_3d
+                self.current_agent_state = jnp.expand_dims(
+                    jnp.array([enu_x, enu_y, 0.0, 0.0], dtype=jnp.float32), axis=0
+                )
+                location = carla.Location(
+                    x=float(centroid[0]),
+                    y=float(-1 * centroid[1]),   # CARLA y = -yaml_y
+                    z=self.ego_vehicle.get_transform().location.z,
+                )
+                self.actual_spawn_yaw = self.ego_vehicle.get_transform().rotation.yaw
+            else:
+                location = self.ego_vehicle.get_transform().location
+
+            # Rotate car to face the bearing direction so the lidar (body-frame) aligns
+            # with what clustering expects.  ENU state and actions are unaffected by yaw.
+            # CARLA yaw 0 = east; bearing 0° = east → carla_yaw = spawn_yaw.
+            angular_offset = self.get_parameter('angular_offset_deg').get_parameter_value().double_value
+            spawn_yaw = self.actual_spawn_yaw if self.actual_spawn_yaw is not None else 0.0
+            carla_yaw = spawn_yaw - bearing_deg_relative + angular_offset
+            rotation = carla.Rotation(pitch=0, yaw=carla_yaw, roll=0)
+            self.teleport_and_wait(carla.Transform(location, rotation))
+            self.get_logger().info(
+                f"{'Initial' if self.is_first_run else 'Step change'}: "
+                f"cluster {start_id}→{goal_id}, bearing {bearing_deg_relative:.1f}°, "
+                f"carla_yaw={carla_yaw:.1f}° (lidar aligned for clustering)"
+            )
+            self._prev_start_cluster = self.current_start_cluster
+            self.is_first_run = False
+
+            # Switch model if this step has a different model dir
+            step_key = f"{start_id}-{goal_id}"
+            new_model_dir = self.step_models.get(step_key, self.default_model_dir)
+            if new_model_dir and new_model_dir != self.current_model_dir:
+                bundle = self.model_bundles.get(new_model_dir)
+                if bundle:
+                    self.algo = bundle.algo
+                    self.env_instance = bundle.env_instance
+                    self.current_model_dir = new_model_dir
+                    self._debug_step_idx += 1
+                    self.get_logger().info(f"[MODEL SWITCH] {step_key} → {new_model_dir}")
+                else:
+                    self.get_logger().warning(
+                        f"[MODEL SWITCH] bundle for {new_model_dir} not loaded; keeping current model"
+                    )
+
+            # Reset RNN state on each new plan step
+            self.rnn_state = self.algo.init_rnn_state
+            self.next_cluster_bonus_awarded = jnp.zeros(self.env_instance.num_agents, dtype=jnp.bool_)
 
         if self.latest_ranges_msg is None or self.latest_agent_state_msg is None:
             self.get_logger().warning("Waiting for sensor data...")
             return
 
+        debug_mode = self.get_parameter('debug_mode').get_parameter_value().bool_value
         if debug_mode:
             current_cluster_id = self.get_parameter('current_cluster_id').get_parameter_value().integer_value
             self.get_logger().info(f"DEBUG MODE: Using manual cluster ID {current_cluster_id}")
@@ -975,107 +1242,117 @@ class DGPPOROSNode(Node):
                 self.get_logger().warning("Waiting for predicted cluster ID...")
                 return
             current_cluster_id = self.latest_predicted_cluster_id
-            self.get_logger().info(f"Default MODE: Using predicted cluster ID {current_cluster_id}")
+            self.get_logger().info(
+                f"Default MODE: Using predicted cluster ID {current_cluster_id}",
+                throttle_duration_sec=1.0,
+            )
 
         mapped_current_cluster = self._map_cluster_id(current_cluster_id)
-        self.get_logger().info(f"current before:{current_cluster_id}, mapped before check: {mapped_current_cluster}")
-        if mapped_current_cluster == expected_next_cluster:
-            self.current_plan_step_index += 1
-            
-            # --- NEW CODE: Re-orient the vehicle when the plan changes but maintain current location ---
-            if self.current_plan_step_index < len(self.plan_sequence):
-                new_plan_step = self.plan_sequence[self.current_plan_step_index]
-                new_start_id = str(new_plan_step["start"])
-                new_next_id = str(new_plan_step["next"])
-                
-                # Get the current vehicle location to avoid teleporting
-                current_location = self.ego_vehicle.get_transform().location
-                
-                plan_key = f"{new_start_id}-{new_next_id}"
-                bearing_rad = self.bearing_map.get(plan_key, 0.0)
-                bearing_deg = math.degrees(bearing_rad) + angular_offset
-                self.get_logger().info(f"Transitioning to new bearing: {bearing_rad:.2f} rad ({bearing_deg:.2f} deg)")
-                
-                new_rotation = carla.Rotation(pitch=0, yaw=-1*bearing_deg, roll=0)
-                new_transform = carla.Transform(current_location, new_rotation)
-                
-                self.teleport_and_wait(new_transform)
-                    
-            # --------------------------------------------------------------------------
-            
-            if self.current_plan_step_index >= len(self.plan_sequence):
-                self.get_logger().info(f"Plan step complete. Transitioning to cluster {expected_next_cluster}. Plan is now finished.")
-            else:
-                self.get_logger().info(f"Plan step complete. Transitioning from cluster {expected_start_cluster} to {expected_next_cluster}. Next step is from cluster {self.plan_sequence[self.current_plan_step_index]['start']}.")
-                
-        if self.current_plan_step_index >= len(self.plan_sequence):
-            return
+        expected_start_cluster = self.current_start_cluster
+        expected_next_cluster  = self.current_goal_cluster
 
         scaled_ranges_np = np.array(self.latest_ranges_msg.data, dtype=np.float32) / self.scale_2d_3d
         self.get_logger().info(f"scaled: {scaled_ranges_np}")
-        
+
         graph = self._build_state_and_graph(
             self.current_agent_state,
             scaled_ranges_np,
             mapped_current_cluster,
             expected_start_cluster,
             expected_next_cluster,
-            self.next_cluster_bonus_awarded
+            self.next_cluster_bonus_awarded,
         )
 
-        self.rng_key, action_key = jr.split(self.rng_key)
-        
+        self.rng_key, _ = jr.split(self.rng_key)
+
         action, new_rnn_state = self.algo.act(
             graph=graph,
             rnn_state=self.rnn_state,
-            params={'policy': self.algo.policy_train_state.params}
+            params={'policy': self.algo.policy_train_state.params},
         )
 
         self.rnn_state = new_rnn_state
         action = self.clip_action(action)
-        
-        # Calculate the next state in the small frame and store it for the next loop
+
         self.current_agent_state = self.agent_step_euler(self.current_agent_state, action)
-        
-        next_state_small_frame_squeezed = jnp.squeeze(self.current_agent_state, axis=0)
-        
-        reward, bonus_awarded_updated = self.env_instance.get_reward(graph, action)
-        
-        # FIX: Check for empty array and reset it
+
+        next_state_squeezed = jnp.squeeze(self.current_agent_state, axis=0)
+
+        _, bonus_awarded_updated = self.env_instance.get_reward(graph, action)
         if bonus_awarded_updated.size == 0:
-            self.get_logger().warning("Received an empty bonus array from get_reward. Resetting.")
+            self.get_logger().warning("Empty bonus array from get_reward. Resetting.")
             self.next_cluster_bonus_awarded = jnp.zeros(self.env_instance.num_agents, dtype=jnp.bool_)
         else:
             self.next_cluster_bonus_awarded = bonus_awarded_updated
 
-        # Scale the next position back up and add the origin
-        next_pos_x_carla = next_state_small_frame_squeezed[1] * self.scale_2d_3d + self.origin_x
-        next_pos_y_carla = next_state_small_frame_squeezed[0] * self.scale_2d_3d + self.origin_y
-        
-        new_location = carla.Location(x=float(next_pos_x_carla), y=float(-1*next_pos_y_carla), z=self.ego_vehicle.get_transform().location.z)
+        # ENU state: [x=east, y=north] → CARLA: x=east, y=-north (CARLA y increases southward)
+        carla_x = float(next_state_squeezed[0] * self.scale_2d_3d + self.origin_x)
+        carla_y = float(-(next_state_squeezed[1] * self.scale_2d_3d + self.origin_y))
+
+        new_location = carla.Location(
+            x=carla_x,
+            y=carla_y,
+            z=self.ego_vehicle.get_transform().location.z,
+        )
         new_transform = carla.Transform(new_location, self.ego_vehicle.get_transform().rotation)
-        
         self.teleport_and_wait(new_transform)
-        
-        spectator_transform = carla.Transform(self.ego_vehicle.get_transform().transform(
-                    carla.Location(x=-4, z=50)), carla.Rotation(yaw=-180, pitch=-90))
+
+        spectator_transform = carla.Transform(
+            self.ego_vehicle.get_transform().transform(carla.Location(x=-4, z=50)),
+            carla.Rotation(yaw=-180, pitch=-90),
+        )
         self.spectator.set_transform(spectator_transform)
 
+        # JSONL per-tick debug log
+        if self._debug_log_file is not None:
+            try:
+                goal_centroid = (self.centroids.get(raw_goal_id)
+                                 or self.centroids.get(goal_id))
+                dist_to_goal = float('nan')
+                if goal_centroid:
+                    # Compare in ENU: centroid[0]=CARLA_x=east, centroid[1]=yaml_y=north
+                    dx = float(next_state_squeezed[0]) * self.scale_2d_3d + self.origin_x - goal_centroid[0]
+                    dy = float(next_state_squeezed[1]) * self.scale_2d_3d + self.origin_y - goal_centroid[1]
+                    dist_to_goal = float((dx * dx + dy * dy) ** 0.5)
+                import json as _json
+                record = {
+                    "t": _time.time(),
+                    "pos_carla": [float(carla_x), float(carla_y)],
+                    "pos_enu": [float(next_state_squeezed[0]), float(next_state_squeezed[1])],
+                    "yaw_deg": float(self.ego_vehicle.get_transform().rotation.yaw),
+                    "bearing_deg": float(self.bearing_map.get(
+                        f"{raw_start_id}-{raw_goal_id}",
+                        self.bearing_map.get(f"{start_id}-{goal_id}", 0.0)
+                    )),
+                    "cluster_raw": int(current_cluster_id),
+                    "cluster_canonical": int(mapped_current_cluster),
+                    "start_cluster_dgppo": int(self.current_start_cluster),
+                    "goal_cluster_dgppo": int(self.current_goal_cluster),
+                    "start_cluster_raw": self._raw_start_cluster,
+                    "goal_cluster_raw": self._raw_goal_cluster,
+                    "model_dir": self.current_model_dir,
+                    "action": [float(action[0, 0]), float(action[0, 1])],
+                    "dist_to_goal_centroid_m": dist_to_goal,
+                }
+                self._debug_log_file.write(_json.dumps(record) + "\n")
+                self._debug_log_file.flush()
+            except Exception as _exc:
+                self.get_logger().warning(f"JSONL log write failed: {_exc}")
+
         self.get_logger().info(f"Action: {action}")
-        self.get_logger().info(f"Teleporting to X: {next_pos_x_carla}, Y: {next_pos_y_carla}")
+        self.get_logger().info(f"Teleporting to CARLA X: {carla_x:.2f}, Y: {carla_y:.2f}")
         
     def agent_step_euler(self, agent_states: AgentState, action: Action) -> AgentState:
-        """Velocity control: action in [-1,1] is directly the velocity command (scaled to ±0.5)."""
+        """Velocity control: action is directly the velocity command in model-space units/s."""
         assert action.shape == (self.env_instance.num_agents, self.env_instance.action_dim)
         assert agent_states.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
-        vel = action * 0.5                                        # action [-1,1] → vel [-0.5, 0.5]
-        next_pos = agent_states[:, :2] + vel * self.dt            # first-order integration
-        n_state_agent_new = jnp.concatenate([next_pos, vel], axis=1)
+        next_pos = agent_states[:, :2] + action * self.dt         # action IS velocity, no extra scaling
+        n_state_agent_new = jnp.concatenate([next_pos, action], axis=1)
         assert n_state_agent_new.shape == (self.env_instance.num_agents, self.env_instance.state_dim)
         return self.clip_state(n_state_agent_new)
-    
+
     def state_lim(self) -> Tuple[State, State]:
-        lower_lim = jnp.array([0., 0., -0.5, -0.5])
+        lower_lim = jnp.array([0., 0., -1.0, -1.0])
         upper_lim = jnp.array([self.twod_area_size, self.twod_area_size, 0.5, 0.5])
         return lower_lim, upper_lim
 
@@ -1106,42 +1383,46 @@ class DGPPOROSNode(Node):
 
         agent_pos_2d = np.array(agent_state_np[0, :2])  # (2,) model-space xy
 
-        # ── 1. Obstacle hits: resample n_rays_phys (72) bins → n_rays (32) beams ──
-        # Training angles go from -π to π; CARLA-2D axis flip: x=sin, y=cos.
+        # ── 1. Resample phys lidar (72 bins, body frame) → n_rays (32) beam angles ──
+        # angles_beam are body-frame; world-frame rotation applied below once bearing is known.
         angles_phys = np.linspace(0, 2 * np.pi, self.n_rays_phys, endpoint=False)
         angles_beam = np.linspace(-np.pi, np.pi - 2 * np.pi / n_rays, n_rays)
         ranges_res  = np.interp(np.mod(angles_beam, 2 * np.pi), angles_phys, scaled_ranges)
-        obs_hits = np.stack([
-            agent_pos_2d[0] + ranges_res * np.sin(angles_beam),
-            agent_pos_2d[1] + ranges_res * np.cos(angles_beam),
-        ], axis=1).astype(np.float32)  # (n_rays, 2), absolute model-space positions
 
-        # ── 2. Terrain boundary hits: zeros (geometry not wired yet) ─────────────
-        # TODO: replace with geometry-based computation once bridge_params are loaded
-        # from the plan JSON (bridge_center, bridge_theta, bridge_gap_width, etc.).
-        bnd_hits = np.zeros((n_rays, 2), dtype=np.float32)  # (n_rays, 2)
+        # ── 2. Agent terrain OH from /current_terrain topic ──────────────────────
 
-        # ── 3. Flat semantic lidar arrays expected by LidarEnvState ──────────────
-        # Layout: [obs_hits | bnd_hits] and [obs_tids | bnd_tids].
-        # Terrain IDs: Road=0, Grass=1, Sidewalk=2. Default all to Grass (1).
-        all_hit_positions = np.concatenate([obs_hits, bnd_hits], axis=0)  # (2*n_rays, 2)
-        all_terrain_ids   = np.ones(2 * n_rays, dtype=np.int32)           # (2*n_rays,)
-
-        # ── 4. Agent terrain OH from /current_terrain topic (Road=0, Grass=1, Sidewalk=2) ──
+        # ── 3. Agent terrain OH from /current_terrain topic (Road=0, Grass=1, Sidewalk=2) ──
         current_terrain_oh = jax.nn.one_hot(self.latest_terrain_id, 3)  # (3,)
 
-        # ── 5. Cluster one-hots & bearing ────────────────────────────────────────
+        # ── 4. Cluster one-hots & bearing ────────────────────────────────────────
         current_cluster_oh = jax.nn.one_hot(mapped_current_cluster_id, self.num_clusters)
         start_cluster_oh   = jax.nn.one_hot(mapped_start_cluster_id,   self.num_clusters)
         next_cluster_oh    = jax.nn.one_hot(mapped_next_cluster_id,    self.num_clusters)
 
         angular_offset = self.get_parameter('angular_offset_deg').get_parameter_value().double_value
-        key = f"{mapped_start_cluster_id}-{mapped_next_cluster_id}"
-        bearing_value = self.bearing_map.get(key, 0.0) + math.radians(angular_offset)
+        # Use bearing cached by control_loop (which uses raw IDs for correct lookup).
+        # bearing_map is keyed by raw canonical IDs; dgppo 0-3 keys would miss.
+        bearing_deg = self._current_bearing_deg + angular_offset
+        bearing_value = math.radians(bearing_deg)
         self.get_logger().info(
             f"Start:{mapped_start_cluster_id} Cur:{mapped_current_cluster_id} "
-            f"Next:{mapped_next_cluster_id} Bearing:{bearing_value:.3f}"
+            f"Next:{mapped_next_cluster_id} Bearing:{bearing_deg:.1f}deg ({bearing_value:.3f}rad)"
         )
+
+        # ── 1b. Obs hit positions in ENU world frame ──────────────────────────
+        # The car is rotated to face the bearing so clustering sees body-frame lidar.
+        # Un-rotate ranges back to ENU for dgppo's graph: add bearing to beam angles.
+        # angles_beam 0 = body forward = bearing direction.
+        # ENU: x=east (cos), y=north (sin). agent_pos_2d = [enu_x, enu_y].
+        angles_enu = angles_beam + bearing_value   # bearing_value already in radians
+        obs_hits = np.stack([
+            agent_pos_2d[0] + ranges_res * np.cos(angles_enu),   # east component
+            agent_pos_2d[1] + ranges_res * np.sin(angles_enu),   # north component
+        ], axis=1).astype(np.float32)
+
+        bnd_hits = np.zeros((n_rays, 2), dtype=np.float32)
+        all_hit_positions = np.concatenate([obs_hits, bnd_hits], axis=0)  # (2*n_rays, 2)
+        all_terrain_ids   = np.ones(2 * n_rays, dtype=np.int32)
 
         goal_state_np = np.array([0.0, 0.0, 0.0, 0.0], dtype=np.float32)
 

@@ -253,7 +253,7 @@ def to_brain_tree(
     cluster_labels: dict[str, str] = {
         str(cid): label for cid, label in taxonomy.cluster_labels().items()
     }
-    return {
+    result: dict[str, Any] = {
         "plan_name":      plan.plan_name,
         "description":    plan.description,
         "cluster_labels": cluster_labels,
@@ -264,6 +264,17 @@ def to_brain_tree(
             "environment":  taxonomy.environment,
         },
     }
+    # Attach CARLA spatial data if the taxonomy provides it (dgppo_ros_node uses these).
+    centroids = taxonomy.centroid_map()
+    if centroids:
+        result["centroids"] = centroids
+    bearing_map = taxonomy.bearing_map_dict()
+    if bearing_map:
+        result["bearing_map"] = bearing_map
+    grid_params = taxonomy.grid_params()
+    if grid_params:
+        result.update(grid_params)  # grid_origin, grid_scale, default_model_dir, step_models
+    return result
 
 
 def _convert_steps(

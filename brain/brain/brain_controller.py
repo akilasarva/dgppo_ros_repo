@@ -117,7 +117,7 @@ class BrainController(Node):
         super().__init__("brain_controller")
 
         # --- Parameters ---
-        self.declare_parameter("image_topic",             "/hamilton/hamilton_zed/rgb/image_rect_color")
+        self.declare_parameter("image_topic",             "/carla/ego_vehicle/rgb_front/image")
         self.declare_parameter("vlm_check_interval",      2.0)
         self.declare_parameter("vlm_model",               "gpt-4o")
         self.declare_parameter("vlm_decide_max_attempts", 3)
