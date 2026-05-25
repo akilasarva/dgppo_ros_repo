@@ -170,6 +170,7 @@ class DebugState:
         self.raw_frame_jpg   = None   # bytes: JPEG of raw ZED image
         self.hsv_frame_jpg   = None   # bytes: JPEG of HSV-segmented image
         self.state_debug     = None   # 12-float transform debug from /dgppo_state_debug
+        self.world_alpha_rad = 0.0    # CW angle from Spot boot-up fwd to sim +Y, in radians
         # velocity time-series (cmd vs reported, vision frame)
         self._vel_t0    = None
         self.vel_times   = deque(maxlen=VEL_HIST_LEN)
@@ -281,6 +282,7 @@ class DebugState:
                 step_rise_ms     = self.step_rise_ms,
                 cycle_metrics    = list(self.cycle_metrics),
                 inf_ms_hist      = list(self.inf_ms_hist),
+                world_alpha_rad  = self.world_alpha_rad,
             )
 
 
@@ -303,6 +305,10 @@ class DebugSubscriber(Node):
         sub(Image, '/segmentor_image',                   self._cb_hsv_img, 10)
         self._cfg_pub = self.create_publisher(Float32MultiArray, '/lidar_filter_config', 10)
         self.create_timer(0.2, self._pub_cfg)
+        self.declare_parameter('world_y_offset_deg', 0.0)
+        _world_deg = self.get_parameter('world_y_offset_deg').get_parameter_value().double_value
+        state.world_alpha_rad = math.radians(_world_deg)
+        self.get_logger().info(f"world_y_offset_deg={_world_deg:.1f}deg → world_alpha_rad={state.world_alpha_rad:.4f}")
 
     def _cb_action(self, msg):
         if len(msg.data) >= 2:
@@ -918,12 +924,13 @@ def run_desktop(state: DebugState):
         # Heading: robot forward is always UP in body frame — constant, never rotates.
         H['heading'] = _arrow((0, 1), C_HEADING, 3.0)
 
-        # Bearing: world-frame bearing rotated into body frame by subtracting spot_yaw.
-        # Bearing is in sim frame (CCW from Sim +X). Spot forward = Sim +Y = sim angle π/2.
-        # No extra offset needed: cos/sin with matplotlib axes (x=right, y=up) maps correctly.
+        # Bearing: plan uses navigation convention (0 = sim +Y = forward, CW positive).
+        # Convert to display angle: display_angle = π/2 − bearing − world_alpha − yaw.
+        # (π/2 maps nav 0→forward=up; subtract bearing for CW→CCW; subtract α and yaw for body frame.)
         if bearing_rad is not None:
             yaw_off = spot_yaw if spot_yaw is not None else 0.0
-            a = bearing_rad - yaw_off
+            world_alpha = snap.get('world_alpha_rad', 0.0)
+            a = math.pi / 2 - bearing_rad - world_alpha - yaw_off
             H['bearing'] = _arrow((math.cos(a), math.sin(a)), C_BEARING, 3.0)
 
         # ── Reported velocity (body frame): fwd=sd[4], lat=sd[5] positive-left ──
@@ -1780,10 +1787,12 @@ function draw(d){
   // Arrows: body-frame display.
   // Heading: robot forward is always UP — constant, never rotates.
   drawArrow(Math.PI/2, sc, cx, cy, C.head, 3.5);
-  // Bearing: world-frame sim-frame angle (CCW from Sim +X). Spot forward = Sim +Y = π/2.
+  // Bearing: plan nav convention (0=sim +Y=fwd, CW positive).
+  // display_angle = π/2 − bearing − world_alpha − yaw
   if(d.bearing_rad!=null){
     const yawOff=d.spot_yaw!=null?d.spot_yaw:0;
-    drawArrow(d.bearing_rad-yawOff,sc,cx,cy,C.bear,3.5);
+    const worldAlpha=d.world_alpha_rad!=null?d.world_alpha_rad:0;
+    drawArrow(Math.PI/2-d.bearing_rad-worldAlpha-yawOff,sc,cx,cy,C.bear,3.5);
   }
 
   // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
@@ -2219,6 +2228,7 @@ def run_web(state: DebugState, port=WEB_PORT):
             plan_step        = snap['plan_step'],
             plan_sequence    = snap['plan_sequence'],
             bearing_rad      = bearing_rad,
+            world_alpha_rad  = snap.get('world_alpha_rad', 0.0),
             spot_yaw         = snap['spot_yaw'],
             processed_ranges = snap['processed_ranges'].tolist()
                                if snap['processed_ranges'] is not None else None,
