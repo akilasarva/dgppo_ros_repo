@@ -62,6 +62,13 @@ class DGPPOROSNode(Node):
         self.declare_parameter('spoof_action_y', 0.0)   # sim-Y component [-1,1]: +Y = Spot FORWARD
         self.declare_parameter('use_projected_vel', False)  # if True: use last action's projected vel (not Spot odometry vel) for next state
         self.declare_parameter('action_rotation_deg', 0.0)  # rotate action vector CW by this many degrees before sending to Spot
+        self.declare_parameter('world_y_offset_deg', 0.0)  # CW angle (viewed from above) from Spot boot-up forward to desired sim +Y
+        _world_y_deg = self.get_parameter('world_y_offset_deg').get_parameter_value().double_value
+        self._world_alpha_rad = math.radians(_world_y_deg)
+        self.get_logger().info(
+            f"world_y_offset_deg={_world_y_deg:.1f}deg — "
+            "CW angle (viewed from above) from Spot boot-up forward to desired sim +Y direction"
+        )
         self.num_clusters = 4
         self.twod_area_size = 1.5
 
@@ -712,7 +719,7 @@ class DGPPOROSNode(Node):
         # Upside-down mount: +Y_sensor = Spot right → φ_body = −φ_sensor.
         # Spot +X = Sim +Y: body→world heading offset is π/2, plus robot yaw.
         # Training lidar is world-frame (no agent yaw in training dirs).
-        ranges_res = np.interp(np.mod(np.pi / 2 + yaw - angles_beam, 2 * np.pi), angles_phys, scaled_ranges)
+        ranges_res = np.interp(np.mod(np.pi / 2 + self._world_alpha_rad + yaw - angles_beam, 2 * np.pi), angles_phys, scaled_ranges)
         # LIDAR ROTATION VERIFY: min-range beam index and angle tell you where the nearest obstacle
         # is in the sim world frame. At yaw≈0: idx≈24 (angle≈π/2) = ahead; idx≈16 (angle≈0) = right;
         # idx≈0/32 (angle≈±π) = left. Log this to verify CW/CCW convention is correct.
