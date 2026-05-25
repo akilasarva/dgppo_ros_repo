@@ -608,7 +608,7 @@ def _build_figure():
         mpatches.Patch(color=C_ROT_ACTION,    label='pre-rotation direction (body frame, = action rotated back)'),
         mpatches.Patch(color=C_RAW_ACTION,    label='raw policy output in sim frame (dashed, no-rotation reference)'),
         mpatches.Patch(color=C_REP_VEL,       label='reported vel  (body frame, unit vec)'),
-        mpatches.Patch(color=C_BEARING,       label='plan bearing  (0=FWD=UP)'),
+        mpatches.Patch(color=C_BEARING,       label='plan bearing  (world-frame: 0=sim+X, π/2=sim+Y)'),
         mpatches.Patch(color=C_HEADING,       label='spot heading  (0=FWD=UP)'),
     ]
     ax.legend(handles=leg, loc='upper left',
@@ -924,10 +924,13 @@ def run_desktop(state: DebugState):
         # Heading: robot forward is always UP in body frame — constant, never rotates.
         H['heading'] = _arrow((0, 1), C_HEADING, 3.0)
 
-        # Bearing: displayed directly in sim frame — same convention as action arrows.
-        # bearing=0=right(+x), π/2=up(+y). Fixed in sim space; no yaw or world_alpha.
+        # Bearing: world-frame. a = bearing - world_alpha - yaw transforms sim bearing
+        # to display (body-frame canvas). Arrow stays fixed in the world as robot rotates.
         if bearing_rad is not None:
-            H['bearing'] = _arrow((math.cos(bearing_rad), math.sin(bearing_rad)), C_BEARING, 3.0)
+            _ψ = spot_yaw if spot_yaw is not None else 0.0
+            _α = snap.get('world_alpha_rad', 0.0)
+            a_disp = bearing_rad - _α - _ψ
+            H['bearing'] = _arrow((math.cos(a_disp), math.sin(a_disp)), C_BEARING, 3.0)
 
         # ── Reported velocity (body frame): fwd=sd[4], lat=sd[5] positive-left ──
         sd_now = snap.get('state_debug')
@@ -1783,10 +1786,11 @@ function draw(d){
   // Arrows: body-frame display.
   // Heading: robot forward is always UP — constant, never rotates.
   drawArrow(Math.PI/2, sc, cx, cy, C.head, 3.5);
-  // Bearing: same sim-frame convention as action arrows — no yaw or world_alpha.
-  // bearing=0=right(+x), π/2=up(+y), always.
+  // Bearing: world-frame. a = bearing - world_alpha - spot_yaw.
+  // Arrow rotates on screen as robot turns — stays fixed in world sim frame.
   if(d.bearing_rad!=null){
-    drawArrow(d.bearing_rad,sc,cx,cy,C.bear,3.5);
+    const _α=d.world_alpha_rad||0.0, _ψ=d.spot_yaw||0.0;
+    drawArrow(d.bearing_rad - _α - _ψ, sc, cx, cy, C.bear, 3.5);
   }
 
   // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
