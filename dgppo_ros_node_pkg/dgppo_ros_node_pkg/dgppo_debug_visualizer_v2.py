@@ -9,8 +9,8 @@ Usage:
 
 Coordinate conventions (after corrections):
   Display: TOP = robot FORWARD, RIGHT = robot RIGHT, LEFT = robot LEFT
-  - Raw cloud: x-flip (upside-down mount) then 90° CW rotation → (x,y) → (y_raw, x_raw)
-  - Processed-range beams: same net rotation → (r·sin θ, r·cos θ)
+  - Raw cloud: driver already in Spot body frame (+x fwd, +y left); 90° CW to display → (−y, x)
+  - Processed-range beams: same net rotation → (−r·sin θ, r·cos θ)
   - Bearing/heading arrows: angle 0 = forward = UP  (stored as raw radians, +π/2 applied at draw)
   - Action arrow: atan2(a1_fwd, a0_right); forward → UP, right → RIGHT — already correct
 
@@ -393,15 +393,15 @@ def _ros_thread(state: DebugState):
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
 def topk_from_ranges(ranges, k=TOP_K, max_range=8.0):
-    """Return (k,2) XY of closest k bins, rotated 90° CW to align with robot frame."""
+    """Return (k,2) display-XY of closest k bins. Display: x=right=−body_y, y=fwd=body_x."""
     n      = len(ranges)
     angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
     valid  = np.where(ranges < max_range * 0.999)[0]
     if len(valid) == 0:
         return np.empty((0, 2))
     idx = valid[np.argsort(ranges[valid])[:k]]
-    return np.column_stack([ranges[idx] * np.sin(angles[idx]),
-                             ranges[idx] * np.cos(angles[idx])])
+    return np.column_stack([-ranges[idx] * np.sin(angles[idx]),
+                              ranges[idx] * np.cos(angles[idx])])
 
 
 def _bearing_for_step(snap):
@@ -429,11 +429,11 @@ def _apply_density_filter(xy, neighbor_radius=0.30, min_neighbors=4):
 
 
 def _apply_slice_filter(raw_cloud, cfg):
-    """Split raw_cloud (N,4) into (all_xy, slice_xy) with x already negated.
+    """Split raw_cloud (N,4) into (all_xy, slice_xy) in display frame (x=right, y=fwd).
 
     Z mode  → signed z band filter; same parameters sent to clustering node.
     Int mode → band filter on intensity; clustering node uses intensity too.
-    The x-negation corrects for upside-down lidar mounting throughout.
+    Driver outputs Spot body frame (+x fwd, +y left); display maps to (−body_y, body_x).
     """
     if raw_cloud is None or len(raw_cloud) == 0:
         return None, None
@@ -450,8 +450,8 @@ def _apply_slice_filter(raw_cloud, cfg):
     if cfg['use_intensity']:
         band_mask &= (intensity >= cfg['int_lower']) & (intensity <= cfg['int_upper'])
 
-    # x-flip (upside-down mount) then 90° CW rotation: net result is (y_raw, x_raw)
-    xy_flipped = np.column_stack([y, x])
+    # Driver in Spot body frame (+x fwd, +y left); display: x=right=−body_y, y=fwd=body_x
+    xy_flipped = np.column_stack([-y, x])
     return xy_flipped, xy_flipped[band_mask & range_mask]
 
 
@@ -588,7 +588,7 @@ def _build_figure():
         ax.text(px, py, txt, color=C_DIM, fontsize=8, ha='center', va='center')
 
     ax.set_title(
-        'TOP=FWD · Lidar x-flipped (upside-down mount) · Orange=top-8 policy inputs · Cyan=action',
+        'TOP=FWD · Driver in Spot body frame · Orange=top-8 policy inputs · Cyan=action',
         color=C_TEXT, fontsize=8.5, pad=5)
 
     leg = [
@@ -801,7 +801,7 @@ def run_desktop(state: DebugState):
         slice_color = C_CLOUD_SLICE_I if cfg['use_intensity'] else C_CLOUD_SLICE_Z
 
         # ── Raw cloud layers — body frame on left canvas ────────────────
-        # _apply_slice_filter returns (body_right, body_forward).
+        # _apply_slice_filter returns display (right=−body_y, fwd=body_x).
         # R(ψ) is applied only in the 3D middle panel; left canvas stays body-frame.
         ψ = spot_yaw if spot_yaw is not None else 0.0
         cos_ψ, sin_ψ = np.cos(ψ), np.sin(ψ)
@@ -850,9 +850,9 @@ def run_desktop(state: DebugState):
             stride3 = max(1, len(raw_cloud) // 800)
             pts3    = raw_cloud[::stride3]
             x3_raw, y3_raw, z3 = pts3[:, 0], pts3[:, 1], pts3[:, 2]
-            # sensor col0=body_fwd, col1=body_right; rotate to world frame
-            x3 = y3_raw * cos_ψ - x3_raw * sin_ψ  # world right
-            y3 = y3_raw * sin_ψ + x3_raw * cos_ψ  # world fwd
+            # col0=body_fwd (x3_raw), col1=body_left (y3_raw); rotate to vision frame
+            x3 = x3_raw * cos_ψ - y3_raw * sin_ψ  # vision x
+            y3 = x3_raw * sin_ψ + y3_raw * cos_ψ  # vision y
 
             out_band3  = ~in_band_all[::stride3]
             in_pass3   = density_pass[::stride3]
@@ -892,8 +892,8 @@ def run_desktop(state: DebugState):
             n      = len(ranges)
             angles = np.linspace(0, 2 * np.pi, n, endpoint=False)
             valid  = ranges < max_range * 0.999
-            ex = np.where(valid, ranges * np.sin(angles), np.nan)
-            ey = np.where(valid, ranges * np.cos(angles), np.nan)
+            ex = np.where(valid, -ranges * np.sin(angles), np.nan)  # display x = right = −body_y
+            ey = np.where(valid,  ranges * np.cos(angles), np.nan)  # display y = fwd  =  body_x
 
             segs = [[[0., 0.], [float(ex[i]), float(ey[i])]] for i in range(n) if valid[i]]
             if segs:
@@ -1296,7 +1296,7 @@ input.r{accent-color:var(--lidar)}
 <body>
 <header>DGPPO Policy Debugger v2
   <span id="badge">connecting…</span>
-  <span style="font-size:10px;color:var(--dim)">TOP=FWD · Lidar x-flipped · Arrows 0=FWD=UP</span>
+  <span style="font-size:10px;color:var(--dim)">TOP=FWD · Driver in Spot body frame · Arrows 0=FWD=UP</span>
   <button id="theme-btn" class="mbtn" onclick="toggleTheme()" style="margin-left:auto">☀ Light</button>
 </header>
 <main>
@@ -1661,10 +1661,10 @@ function post(){
   });
 });
 
-/* Lidar beams: 90° CW rotation applied (sin/cos swapped). Bearing arrows: standard polar, no offset (bearing is sim-frame angle; Spot fwd=Sim+Y=π/2 → UP). */
+/* Lidar beams: driver in Spot body frame (+x fwd, +y left). Display: x=right=−body_y, y=fwd=body_x → x=−r·sin(a), y=r·cos(a). */
 function lidarPt(r,a,cx,cy,sc){
-  // 90° CW rotation (x-flip + rotate): display x=r·sin(a), display y=r·cos(a)
-  return[cx + r*Math.sin(a)*sc, cy - r*Math.cos(a)*sc];
+  // display x=−r·sin(a) (right=−body_y), display y=r·cos(a) (fwd=body_x)
+  return[cx - r*Math.sin(a)*sc, cy - r*Math.cos(a)*sc];
 }
 function polarPt(r,a,cx,cy,sc){
   // Standard polar: x positive = RIGHT, y positive = UP (canvas inverted)
@@ -1914,8 +1914,8 @@ function updateThree(d){
   if(!d.cloud_3d||!d.cloud_3d.length)return;
   const pts=d.cloud_3d;
   const psi3=d.spot_yaw||0.0,cosP3=Math.cos(psi3),sinP3=Math.sin(psi3);
-  // pts[i]=[body_fwd, body_right, z]; rotate to world frame; Three.js: x=wf, y=z, z=-wr
-  function toW3(bf,br,z){const wr=br*cosP3-bf*sinP3,wf=br*sinP3+bf*cosP3;return[wf,z,-wr];}
+  // pts[i]=[body_fwd, body_left, z]; rotate to vision frame; Three.js: x=vx, y=z, z=-vy
+  function toW3(bf,bl,z){const vx=bf*cosP3-bl*sinP3,vy=bf*sinP3+bl*cosP3;return[vx,z,-vy];}
   // All points
   const posA=new Float32Array(pts.length*3);
   for(let i=0;i<pts.length;i++){const[tx,ty,tz]=toW3(pts[i][0],pts[i][1],pts[i][2]);posA[i*3]=tx;posA[i*3+1]=ty;posA[i*3+2]=tz;}
@@ -2064,9 +2064,9 @@ function panel(d){
       }
       const sorted=[...hits].sort((a,b)=>a.r-b.r).slice(0,TOP_K);
       topkEl.innerHTML=sorted.map((h,i)=>{
-        // body frame: xb=right=r*sin(a), yb=fwd=r*cos(a)
+        // display frame: xb=right=−r*sin(a), yb=fwd=r*cos(a)
         // world frame: rotate by yaw psi to undo robot rotation
-        const xb=h.r*Math.sin(h.a), yb=h.r*Math.cos(h.a);
+        const xb=-h.r*Math.sin(h.a), yb=h.r*Math.cos(h.a);
         const px=(xb*cosP - yb*sinP).toFixed(2);
         const py=(xb*sinP + yb*cosP).toFixed(2);
         return `<div class="row"><span class="k" style="color:var(--topk)">  pt ${i}</span>`+
