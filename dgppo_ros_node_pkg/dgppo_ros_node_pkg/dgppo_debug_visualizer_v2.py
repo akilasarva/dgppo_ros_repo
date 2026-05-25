@@ -924,13 +924,9 @@ def run_desktop(state: DebugState):
         # Heading: robot forward is always UP in body frame — constant, never rotates.
         H['heading'] = _arrow((0, 1), C_HEADING, 3.0)
 
-        # Bearing: world-frame with +π/2 offset so bearing=0→RIGHT, bearing=π/2→UP.
-        # a = bearing + π/2 - α - ψ. Arrow stays fixed in world as robot rotates.
+        # Bearing: plan sim-frame directly → bearing=0 always RIGHT (+x), π/2 always UP (+y).
         if bearing_rad is not None:
-            _ψ = spot_yaw if spot_yaw is not None else 0.0
-            _α = snap.get('world_alpha_rad', 0.0)
-            a_disp = bearing_rad + math.pi / 2 - _α - _ψ
-            H['bearing'] = _arrow((math.cos(a_disp), math.sin(a_disp)), C_BEARING, 3.0)
+            H['bearing'] = _arrow((math.cos(bearing_rad), math.sin(bearing_rad)), C_BEARING, 3.0)
 
         # ── Reported velocity (body frame): fwd=sd[4], lat=sd[5] positive-left ──
         sd_now = snap.get('state_debug')
@@ -1110,8 +1106,10 @@ def run_desktop(state: DebugState):
                      ('raw a[0] right', f'{ra0:+.4f}', C_RAW_ACTION),
                      ('raw a[1] fwd',   f'{ra1:+.4f}', C_RAW_ACTION),
                      ('|raw a| mag',    f'{math.hypot(ra0, ra1):.4f}', C_DIM)]
-        if spot_yaw is not None:
-            rows += [('', '', ''), ('SPOT YAW', f'{math.degrees(spot_yaw):+.1f}°', C_HEADING)]
+        _α = snap.get('world_alpha_rad', 0.0)
+        rows += [('', '', ''),
+                 ('SPOT YAW',   f'{math.degrees(spot_yaw):+.1f}°' if spot_yaw is not None else 'N/A', C_HEADING),
+                 ('WORLD α',    f'{math.degrees(_α):+.1f}°',                                           C_DIM)]
 
         if sd and len(sd) >= 12:
             rows += [('', '', ''),
@@ -1786,11 +1784,9 @@ function draw(d){
   // Arrows: body-frame display.
   // Heading: robot forward is always UP — constant, never rotates.
   drawArrow(Math.PI/2, sc, cx, cy, C.head, 3.5);
-  // Bearing: world-frame + π/2 offset → bearing=0=RIGHT, bearing=π/2=UP.
-  // a = bearing + π/2 - α - ψ. Arrow stays fixed in world as robot rotates.
+  // Bearing: plan sim-frame directly → bearing=0=RIGHT, π/2=UP.
   if(d.bearing_rad!=null){
-    const _α=d.world_alpha_rad||0.0, _ψ=d.spot_yaw||0.0;
-    drawArrow(d.bearing_rad + Math.PI/2 - _α - _ψ, sc, cx, cy, C.bear, 3.5);
+    drawArrow(d.bearing_rad, sc, cx, cy, C.bear, 3.5);
   }
 
   // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
