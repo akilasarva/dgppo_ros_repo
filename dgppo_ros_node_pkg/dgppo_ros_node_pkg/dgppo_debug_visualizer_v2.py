@@ -1357,6 +1357,8 @@ input.r{accent-color:var(--lidar)}
     <div class="row"><span class="k">FROM</span><span class="v" id="i-pf">—</span></div>
     <div class="row"><span class="k">TO</span><span class="v" id="i-pt">—</span></div>
     <div class="row"><span class="k">BEARING</span><span class="v" id="i-br">—</span></div>
+    <div class="row"><span class="k" style="color:#ffd700">bear - α</span><span class="v" id="i-bw" style="color:#ffd700">—</span></div>
+    <div class="row"><span class="k" style="color:#ffd700">bear - α - ψ</span><span class="v" id="i-bb" style="color:#ffd700">—</span></div>
     <div class="row"><span class="k">ACT↔BEAR</span><span class="v" id="i-df">—</span></div>
     <hr>
     <div class="row"><span class="k">a[0] right</span><span class="v" id="i-a0">—</span></div>
@@ -1368,6 +1370,7 @@ input.r{accent-color:var(--lidar)}
     <div class="row"><span class="k">|raw a| mag</span><span class="v" id="i-rmg">—</span></div>
     <hr>
     <div class="row"><span class="k">SPOT YAW</span><span class="v" id="i-yw">—</span></div>
+    <div class="row"><span class="k">WORLD α</span><span class="v" id="i-al">—</span></div>
     <hr>
     <div style="font-size:9px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase;margin:3px 0">Frame Debug</div>
     <div class="row"><span class="k" style="color:#aaddff">pos_vis x/y m</span><span class="v" id="i-dbpv" style="color:#aaddff">—</span></div>
@@ -1808,7 +1811,9 @@ function draw(d){
     const b_world=d.bearing_rad - _α;       // apply world offset
     const b_body=b_world - _ψ;              // apply spot yaw
     const a_disp=b_body + Math.PI/2;        // rotate so 0→UP in drawArrow convention
-    drawArrow(a_disp, sc, cx, cy, C.bear, 3.5);
+    drawArrow(b_world + Math.PI/2, sc, cx, cy, C.bear, 1.5, 0.45); // bear - α (dashed dim)
+    drawArrow(b_body  + Math.PI/2, sc, cx, cy, C.bear, 1.5, 0.70); // bear - α - ψ (dotted)
+    drawArrow(a_disp,              sc, cx, cy, C.bear, 3.5);        // final
   }
 
   // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
@@ -2048,7 +2053,12 @@ function panel(d){
     $t('i-pf',CN[s.start]||String(s.start),'#ff9955');
     $t('i-pt',CN[s.next] ||String(s.next), '#ff9955');
   }else if(seq.length>0){$t('i-ps','COMPLETE','#00cc44');}
-  if(d.bearing_rad!=null)$t('i-br',(d.bearing_rad*180/Math.PI).toFixed(1)+'°');
+  if(d.bearing_rad!=null){
+    const _α2=d.world_alpha_rad||0.0, _ψ2=d.spot_yaw||0.0;
+    $t('i-br',(d.bearing_rad*180/Math.PI).toFixed(1)+'°');
+    $t('i-bw',((d.bearing_rad-_α2)*180/Math.PI).toFixed(1)+'°');
+    $t('i-bb',((d.bearing_rad-_α2-_ψ2)*180/Math.PI).toFixed(1)+'°');
+  }
   if(d.has_action){
     const[a0,a1]=d.action,mag=Math.hypot(a0,a1);
     $t('i-a0',a0.toFixed(4));$t('i-a1',a1.toFixed(4));$t('i-mg',mag.toFixed(4));
@@ -2059,6 +2069,7 @@ function panel(d){
     }
   }
   if(d.spot_yaw!=null)$t('i-yw',(d.spot_yaw*180/Math.PI).toFixed(1)+'°');
+  $t('i-al',((d.world_alpha_rad||0)*180/Math.PI).toFixed(1)+'°');
   if(d.state_debug&&d.state_debug.length>=12){
     const sd=d.state_debug;
     const f3=v=>(v>=0?'+':'')+v.toFixed(3), f4=v=>(v>=0?'+':'')+v.toFixed(4);
