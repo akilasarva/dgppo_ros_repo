@@ -723,8 +723,8 @@ def _build_figure():
 def run_desktop(state: DebugState):
     fig, ax, ax3d, ax_info, sliders, textboxes, ax_vx, ax_vy, ax_delay, ax_rise, ax_inf = _build_figure()
     history = deque(maxlen=HISTORY_LEN)
-    H = {'lidar': [], 'arrow': None, 'bearing': None, 'heading': None,
-         'rep_vel': None, 'raw_action': None, 'rot_action': None, 'trail': [], 'texts': []}
+    H = {'lidar': [], 'arrow': None, 'bearing': None, 'bear_world': None, 'bear_body': None,
+         'heading': None, 'rep_vel': None, 'raw_action': None, 'rot_action': None, 'trail': [], 'texts': []}
 
     _empty: list = []
     ln_cmd_vx, = ax_vx.plot(_empty, _empty, color='#ff4466', lw=1.5)
@@ -772,7 +772,7 @@ def run_desktop(state: DebugState):
 
     def _clear():
         _rm(H['lidar']); _rm(H['trail']); _rm(H['texts'])
-        for k in ('arrow', 'bearing', 'heading', 'rep_vel', 'raw_action', 'rot_action'):
+        for k in ('arrow', 'bearing', 'bear_world', 'bear_body', 'heading', 'rep_vel', 'raw_action', 'rot_action'):
             if H[k] is not None:
                 try: H[k].remove()
                 except Exception: pass
@@ -924,9 +924,22 @@ def run_desktop(state: DebugState):
         # Heading: robot forward is always UP in body frame — constant, never rotates.
         H['heading'] = _arrow((0, 1), C_HEADING, 3.0)
 
-        # Bearing: plan sim-frame directly → bearing=0 always RIGHT (+x), π/2 always UP (+y).
         if bearing_rad is not None:
-            H['bearing'] = _arrow((math.cos(bearing_rad), math.sin(bearing_rad)), C_BEARING, 3.0)
+            _α   = snap.get('world_alpha_rad', 0.0)
+            _ψ   = spot_yaw if spot_yaw is not None else 0.0
+            b_world = bearing_rad - _α        # apply world offset
+            b_body  = b_world - _ψ            # apply spot yaw
+            a_disp  = b_body + math.pi / 2    # rotate so 0→UP in drawArrow convention
+            # intermediate: b_world (bearing - α), dashed dim gold
+            bw_disp = b_world + math.pi / 2
+            H['bear_world'] = _arrow((math.cos(bw_disp), math.sin(bw_disp)), C_BEARING, 1.5,
+                                     alpha=0.45, linestyle='--')
+            # intermediate: b_body (bearing - α - ψ), dashed brighter
+            bb_disp = b_body + math.pi / 2
+            H['bear_body']  = _arrow((math.cos(bb_disp), math.sin(bb_disp)), C_BEARING, 1.5,
+                                     alpha=0.70, linestyle=':')
+            # final display arrow
+            H['bearing'] = _arrow((math.cos(a_disp), math.sin(a_disp)), C_BEARING, 3.0)
 
         # ── Reported velocity (body frame): fwd=sd[4], lat=sd[5] positive-left ──
         sd_now = snap.get('state_debug')
@@ -1083,8 +1096,14 @@ def run_desktop(state: DebugState):
             rows += [('PLAN STEP', f"{ps+1} / {len(seq)}", '#ffdd88'),
                      ('FROM', sc, '#ff9955'), ('TO', nc, '#ff9955')]
             if bearing_rad is not None:
-                bd = math.degrees(bearing_rad)
-                rows.append(('BEARING (raw)', f'{bd:+.1f}°', C_BEARING))
+                _α_dp = snap.get('world_alpha_rad', 0.0)
+                _ψ_dp = spot_yaw if spot_yaw is not None else 0.0
+                bd      = math.degrees(bearing_rad)
+                bw_deg  = math.degrees(bearing_rad - _α_dp)
+                bb_deg  = math.degrees(bearing_rad - _α_dp - _ψ_dp)
+                rows += [('BEARING (raw)',    f'{bd:+.1f}°',  C_BEARING),
+                         ('bear - α (world)', f'{bw_deg:+.1f}°', C_BEARING),
+                         ('bear - α - ψ (body)', f'{bb_deg:+.1f}°', C_BEARING)]
                 if snap['has_action'] and mag > 0.02:
                     ad   = math.degrees(math.atan2(a1, a0))
                     diff = (ad - bd + 180) % 360 - 180
@@ -1784,9 +1803,12 @@ function draw(d){
   // Arrows: body-frame display.
   // Heading: robot forward is always UP — constant, never rotates.
   drawArrow(Math.PI/2, sc, cx, cy, C.head, 3.5);
-  // Bearing: plan sim-frame directly → bearing=0=RIGHT, π/2=UP.
   if(d.bearing_rad!=null){
-    drawArrow(d.bearing_rad, sc, cx, cy, C.bear, 3.5);
+    const _α=d.world_alpha_rad||0.0, _ψ=d.spot_yaw||0.0;
+    const b_world=d.bearing_rad - _α;       // apply world offset
+    const b_body=b_world - _ψ;              // apply spot yaw
+    const a_disp=b_body + Math.PI/2;        // rotate so 0→UP in drawArrow convention
+    drawArrow(a_disp, sc, cx, cy, C.bear, 3.5);
   }
 
   // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
