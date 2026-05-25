@@ -7,7 +7,7 @@ import yaml
 import os
 import numpy as np
 import threading
-from rclpy.qos import qos_profile_sensor_data
+from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
 import json
 import math
 from typing import NamedTuple, Tuple, Optional, List, Dict
@@ -184,6 +184,12 @@ class DGPPOROSNode(Node):
         self.spot_act_pub = self.create_publisher(Float32MultiArray, '/dgppo_action', 100)
         self.state_debug_pub = self.create_publisher(Float32MultiArray, '/dgppo_state_debug', 10)
         self.plan_step_pub = self.create_publisher(Int32, '/dgppo_plan_step', 10)
+        _latched_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL,
+                                  reliability=ReliabilityPolicy.RELIABLE,
+                                  history=HistoryPolicy.KEEP_LAST)
+        self.world_alpha_pub = self.create_publisher(Float32MultiArray, '/dgppo_world_alpha', _latched_qos)
+        _alpha_msg = Float32MultiArray(); _alpha_msg.data = [self._world_alpha_rad]
+        self.world_alpha_pub.publish(_alpha_msg)
 
         self._take_lease_srv = self.create_service(Trigger, '/dgppo_take_lease', self._take_lease_callback)
 
@@ -715,11 +721,10 @@ class DGPPOROSNode(Node):
         angles_phys = np.linspace(0, 2 * np.pi, self.n_rays_phys, endpoint=False)
         angles_beam = np.linspace(-np.pi, np.pi - 2 * np.pi / n_rays, n_rays)
         # Sensor bin to look up for training beam at θ_beam (sim world angle):
-        #   φ_sensor = π/2 + yaw − θ_beam
-        # Upside-down mount: +Y_sensor = Spot right → φ_body = −φ_sensor.
-        # Spot +X = Sim +Y: body→world heading offset is π/2, plus robot yaw.
+        #   φ_sensor = θ_beam − π/2 − α − yaw
+        # Driver outputs bins in Spot body frame (+x forward, +y left, CCW).
         # Training lidar is world-frame (no agent yaw in training dirs).
-        ranges_res = np.interp(np.mod(np.pi / 2 + self._world_alpha_rad + yaw - angles_beam, 2 * np.pi), angles_phys, scaled_ranges)
+        ranges_res = np.interp(np.mod(angles_beam - np.pi / 2 - self._world_alpha_rad - yaw, 2 * np.pi), angles_phys, scaled_ranges)
         # LIDAR ROTATION VERIFY: min-range beam index and angle tell you where the nearest obstacle
         # is in the sim world frame. At yaw≈0: idx≈24 (angle≈π/2) = ahead; idx≈16 (angle≈0) = right;
         # idx≈0/32 (angle≈±π) = left. Log this to verify CW/CCW convention is correct.
