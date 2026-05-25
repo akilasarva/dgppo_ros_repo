@@ -924,10 +924,14 @@ def run_desktop(state: DebugState):
         # Heading: robot forward is always UP in body frame — constant, never rotates.
         H['heading'] = _arrow((0, 1), C_HEADING, 3.0)
 
-        # Bearing: sim frame, same as action arrows (sd[12]=sim-X=right, sd[13]=sim-Y=fwd).
-        # No yaw or world_alpha — displayed directly in sim frame: 0=right, π/2=up.
+        # Bearing: world-frame direction in body-frame display.
+        # As robot rotates, arrow tracks the fixed sim-world direction (like a compass).
+        # Requires world_alpha to correctly map sim→physical body frame.
         if bearing_rad is not None:
-            H['bearing'] = _arrow((math.cos(bearing_rad), math.sin(bearing_rad)), C_BEARING, 3.0)
+            yaw_off = spot_yaw if spot_yaw is not None else 0.0
+            world_alpha = snap.get('world_alpha_rad', 0.0)
+            a = bearing_rad - world_alpha - yaw_off
+            H['bearing'] = _arrow((math.cos(a), math.sin(a)), C_BEARING, 3.0)
 
         # ── Reported velocity (body frame): fwd=sd[4], lat=sd[5] positive-left ──
         sd_now = snap.get('state_debug')
@@ -1783,10 +1787,12 @@ function draw(d){
   // Arrows: body-frame display.
   // Heading: robot forward is always UP — constant, never rotates.
   drawArrow(Math.PI/2, sc, cx, cy, C.head, 3.5);
-  // Bearing: DGPPO std math convention — atan2(dy_sim, dx_sim). 0=sim+X, π/2=sim+Y=fwd.
-  // Bearing in sim frame: same convention as action arrows (0=right, π/2=fwd=up).
+  // Bearing: world-frame direction in body-frame display (tracks sim direction as robot rotates).
+  // display_angle = bearing − world_alpha − yaw
   if(d.bearing_rad!=null){
-    drawArrow(d.bearing_rad,sc,cx,cy,C.bear,3.5);
+    const yawOff=d.spot_yaw!=null?d.spot_yaw:0;
+    const worldAlpha=d.world_alpha_rad!=null?d.world_alpha_rad:0;
+    drawArrow(d.bearing_rad-worldAlpha-yawOff,sc,cx,cy,C.bear,3.5);
   }
 
   // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
