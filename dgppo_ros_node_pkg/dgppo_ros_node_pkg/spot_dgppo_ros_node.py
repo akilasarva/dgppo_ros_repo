@@ -416,10 +416,11 @@ class DGPPOROSNode(Node):
                 yaw_msg = Float32MultiArray()
                 yaw_msg.data = [yaw]
                 self.spot_yaw_pub.publish(yaw_msg)
-                sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x
-                sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y
-                sim_vel_x = -vel.x / self.scale_2d_3d   # +90° vision-frame rotation then sim-axis swap
-                sim_vel_y = -vel.y / self.scale_2d_3d
+                _ca, _sa = math.cos(self._world_alpha_rad), math.sin(self._world_alpha_rad)
+                sim_pos_x = (-_sa * pos.x - _ca * pos.y) / self.scale_2d_3d + self.sim_origin_x
+                sim_pos_y = ( _ca * pos.x - _sa * pos.y) / self.scale_2d_3d + self.sim_origin_y
+                sim_vel_x = (-_sa * vel.x - _ca * vel.y) / self.scale_2d_3d
+                sim_vel_y = ( _ca * vel.x - _sa * vel.y) / self.scale_2d_3d
                 self.latest_agent_state = jnp.expand_dims(
                     jnp.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=jnp.float32), axis=0
                 )
@@ -446,10 +447,11 @@ class DGPPOROSNode(Node):
         yaw_msg = Float32MultiArray()
         yaw_msg.data = [yaw]
         self.spot_yaw_pub.publish(yaw_msg)
-        spot_sim_pos_x = -pos.y / self.scale_2d_3d + self.sim_origin_x   # Spot Y (left)  → Sim X
-        spot_sim_pos_y =  pos.x / self.scale_2d_3d + self.sim_origin_y   # Spot X (front) → Sim Y
-        spot_sim_vel_x = -vel.x   # +90° vision-frame rotation then sim-axis swap
-        spot_sim_vel_y = -vel.y
+        _ca, _sa = math.cos(self._world_alpha_rad), math.sin(self._world_alpha_rad)
+        spot_sim_pos_x = (-_sa * pos.x - _ca * pos.y) / self.scale_2d_3d + self.sim_origin_x
+        spot_sim_pos_y = ( _ca * pos.x - _sa * pos.y) / self.scale_2d_3d + self.sim_origin_y
+        spot_sim_vel_x = -_sa * vel.x - _ca * vel.y
+        spot_sim_vel_y =  _ca * vel.x - _sa * vel.y
         if (self.get_parameter('use_projected_vel').get_parameter_value().bool_value
                 and self._projected_sim_vel is not None
                 and self._projected_sim_pos is not None):
@@ -587,8 +589,10 @@ class DGPPOROSNode(Node):
         #   body_left = −v_wx * sin(yaw) + v_wy * cos(yaw)
         # Step 3 — proportional-clamp to SPOT_MAX_VEL (SDK hard limit is 2.0 m/s)
         SPOT_MAX_VEL = 0.5  # m/s — conservative safe limit
-        v_world_x =  float(new_movement_targets[3]) * self.scale_2d_3d   # sim_Y → vision +X
-        v_world_y = -float(new_movement_targets[2]) * self.scale_2d_3d   # −sim_X → vision +Y
+        _sim_vx = float(new_movement_targets[2])
+        _sim_vy = float(new_movement_targets[3])
+        v_world_x = (-_sa * _sim_vx + _ca * _sim_vy) * self.scale_2d_3d   # sim → vision +X (R(-(π/2+α)))
+        v_world_y = (-_ca * _sim_vx - _sa * _sim_vy) * self.scale_2d_3d   # sim → vision +Y
         v_x_raw =  v_world_x * math.cos(yaw) + v_world_y * math.sin(yaw)  # body forward
         v_y_raw = -v_world_x * math.sin(yaw) + v_world_y * math.cos(yaw)  # body left
         max_component = max(abs(v_x_raw), abs(v_y_raw))
