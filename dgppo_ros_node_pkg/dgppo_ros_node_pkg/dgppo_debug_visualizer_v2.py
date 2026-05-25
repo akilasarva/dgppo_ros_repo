@@ -925,11 +925,10 @@ def run_desktop(state: DebugState):
         H['heading'] = _arrow((0, 1), C_HEADING, 3.0)
 
         # Bearing: DGPPO standard math convention — atan2(Δy_sim, Δx_sim).
-        # 0=sim+X, π/2=sim+Y. Display angle = bearing − world_alpha − yaw.
+        # 0=sim+X, π/2=sim+Y=forward. Boot-direction independent: no world_alpha.
         if bearing_rad is not None:
             yaw_off = spot_yaw if spot_yaw is not None else 0.0
-            world_alpha = snap.get('world_alpha_rad', 0.0)
-            a = bearing_rad - world_alpha - yaw_off
+            a = bearing_rad - yaw_off
             H['bearing'] = _arrow((math.cos(a), math.sin(a)), C_BEARING, 3.0)
 
         # ── Reported velocity (body frame): fwd=sd[4], lat=sd[5] positive-left ──
@@ -1786,12 +1785,11 @@ function draw(d){
   // Arrows: body-frame display.
   // Heading: robot forward is always UP — constant, never rotates.
   drawArrow(Math.PI/2, sc, cx, cy, C.head, 3.5);
-  // Bearing: DGPPO std math convention — atan2(dy_sim, dx_sim). 0=sim+X, π/2=sim+Y.
-  // display_angle = bearing − world_alpha − yaw
+  // Bearing: DGPPO std math convention — atan2(dy_sim, dx_sim). 0=sim+X, π/2=sim+Y=fwd.
+  // Boot-direction independent: display_angle = bearing − yaw (no world_alpha).
   if(d.bearing_rad!=null){
     const yawOff=d.spot_yaw!=null?d.spot_yaw:0;
-    const worldAlpha=d.world_alpha_rad!=null?d.world_alpha_rad:0;
-    drawArrow(d.bearing_rad-worldAlpha-yawOff,sc,cx,cy,C.bear,3.5);
+    drawArrow(d.bearing_rad-yawOff,sc,cx,cy,C.bear,3.5);
   }
 
   // Reported velocity: body frame fwd=sd[4], lat=sd[5] positive-left → right=-lat
