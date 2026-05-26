@@ -10,7 +10,7 @@ import threading
 from rclpy.qos import qos_profile_sensor_data, QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
 import json
 import math
-from typing import NamedTuple, Tuple, Optional, List, Dict
+from typing import NamedTuple
 
 # ROS2 Messages
 from geometry_msgs.msg import Twist
@@ -23,11 +23,15 @@ import bosdyn.client.util
 import bosdyn.client.lease
 from bosdyn.client.exceptions import LeaseUseError
 from bosdyn.client.robot_command import (RobotCommandBuilder, RobotCommandClient)
-from bosdyn.client.frame_helpers import (
-    BODY_FRAME_NAME,
-    VISION_FRAME_NAME,
-    get_se2_a_tform_b,
+
+# Local utilities
+from .utils import (
+    SCALE_SPOT_TO_SIM,
+    VISION_TO_DGPPO_R, DGPPO_TO_VISION_R,
+    rot2d, apply_rot2d,
+    resample_lidar, lidar_angles,
 )
+from .spot_utils import get_spot_state, get_vision_to_body_rotation, send_velocity
 
 import time
 
@@ -41,8 +45,7 @@ from .dgppo.dgppo.env.lidar_env.base import get_terrain_id as _compute_terrain_i
 from .dgppo.dgppo.algo.dgppo import DGPPO
 from .dgppo.dgppo.algo import make_algo
 from .dgppo.dgppo.utils.graph import GraphsTuple
-from .dgppo.dgppo.utils.typing import Array, Action, AgentState, State
-from .dgppo.dgppo.utils.utils import jax_vmap, tree_index
+from .dgppo.dgppo.utils.typing import Array
 
 class DGPPOROSNode(Node):
     def __init__(self):
@@ -65,6 +68,8 @@ class DGPPOROSNode(Node):
         self.declare_parameter('world_y_offset_deg', 0.0)  # CW angle (viewed from above) from Spot boot-up forward to desired sim +Y
         _world_y_deg = self.get_parameter('world_y_offset_deg').get_parameter_value().double_value
         self._world_alpha_rad = math.radians(_world_y_deg)
+        self.declare_parameter('transform_verbosity', 0)  # 0=off 1=summary 2=per-step matrices
+        self._transform_verbosity = self.get_parameter('transform_verbosity').get_parameter_value().integer_value
         self.get_logger().info(
             f"world_y_offset_deg={_world_y_deg:.1f}deg — "
             "CW angle (viewed from above) from Spot boot-up forward to desired sim +Y direction"
@@ -241,6 +246,11 @@ class DGPPOROSNode(Node):
         self._cmd_sender = threading.Thread(target=self._send_commands, daemon=True)
         self._cmd_sender.start()
 
+    def _tlog(self, level: int, msg: str):
+        """Log transform debug info when transform_verbosity >= level."""
+        if self._transform_verbosity >= level:
+            self.get_logger().info(msg)
+
     def _poll_spot_state(self):
         """Background thread: keeps _cached_robot_state fresh at ~50 Hz."""
         while True:
@@ -259,8 +269,7 @@ class DGPPOROSNode(Node):
             with self._cmd_lock:
                 v_x, v_y = self._cmd_vel
             try:
-                cmd = RobotCommandBuilder.synchro_velocity_command(v_x=v_x, v_y=v_y, v_rot=0.0)
-                self.command_client.robot_command(command=cmd, end_time_secs=time.time() + 0.5)
+                send_velocity(self.command_client, v_x, v_y, end_time_secs=time.time() + 0.5)
                 self._tablet_has_lease = False
             except (LeaseUseError, bosdyn.client.lease.NotActiveLeaseError):
                 self._tablet_has_lease = True
@@ -268,34 +277,14 @@ class DGPPOROSNode(Node):
                 pass
             time.sleep(0.04)  # 25 Hz — well within the 500 ms command expiry window
 
-    # yveys: Spot get_state function for easier access.
     def _get_spot_state(self):
-        class Point:
-            def __init__(self, x, y):
-                self.x = x
-                self.y = y
-
+        """Read cached Spot state and return (x, y, vx, vy, yaw) in vision frame."""
         with self._state_lock:
             robot_state = self._cached_robot_state
         if robot_state is None:
             # Fallback: blocking call on first tick before cache is warm
             robot_state = self.state_client.get_robot_state()
-
-        kinematic_state = robot_state.kinematic_state
-        pos_transforms = kinematic_state.transforms_snapshot
-
-        assert str(pos_transforms) != ""
-
-        tform_body_in_vision = get_se2_a_tform_b(
-            pos_transforms, VISION_FRAME_NAME, BODY_FRAME_NAME
-        )
-
-        pos = Point(tform_body_in_vision.x, tform_body_in_vision.y)
-        vel = Point(kinematic_state.velocity_of_body_in_vision.linear.x, kinematic_state.velocity_of_body_in_vision.linear.y)
-        # .angle = body yaw (radians) in vision frame — valid even when stationary
-        yaw = tform_body_in_vision.angle
-
-        return pos, vel, yaw
+        return get_spot_state(robot_state)
 
     def _take_lease_callback(self, request, response):
         """Service handler: reclaim the lease from the tablet and resume the plan."""
@@ -425,15 +414,32 @@ class DGPPOROSNode(Node):
             )
             # Still read and publish state so we stay current.
             try:
-                pos, vel, yaw = self._get_spot_state()
+                x, y, vx, vy, yaw = self._get_spot_state()
                 yaw_msg = Float32MultiArray()
                 yaw_msg.data = [yaw]
                 self.spot_yaw_pub.publish(yaw_msg)
-                _ca, _sa = math.cos(self._world_alpha_rad), math.sin(self._world_alpha_rad)
-                sim_pos_x = (-_sa * pos.x - _ca * pos.y) / self.scale_2d_3d + self.sim_origin_x
-                sim_pos_y = ( _ca * pos.x - _sa * pos.y) / self.scale_2d_3d + self.sim_origin_y
-                sim_vel_x = (-_sa * vel.x - _ca * vel.y) / self.scale_2d_3d
-                sim_vel_y = ( _ca * vel.x - _sa * vel.y) / self.scale_2d_3d
+                self._tlog(1, f"[PAUSE] vision_pos=({x:.3f},{y:.3f})  vision_vel=({vx:.3f},{vy:.3f})")
+
+                # Position: vision → sim (two separate transforms)
+                # Transform 1: fixed 90° CW from above (vision → DGPPO frame)
+                pos_after_fixed = apply_rot2d(VISION_TO_DGPPO_R, np.array([x, y]))
+                self._tlog(2, f"[PAUSE][pos] after VISION_TO_DGPPO_R: {pos_after_fixed}")
+                # Transform 2: runtime world_alpha rotation
+                R_alpha = rot2d(self._world_alpha_rad)
+                pos_sim_unscaled = apply_rot2d(R_alpha, pos_after_fixed)
+                self._tlog(2, f"[PAUSE][pos] after alpha R (alpha={math.degrees(self._world_alpha_rad):.1f}°): {pos_sim_unscaled}")
+                sim_pos_x = pos_sim_unscaled[0] / SCALE_SPOT_TO_SIM + self.sim_origin_x
+                sim_pos_y = pos_sim_unscaled[1] / SCALE_SPOT_TO_SIM + self.sim_origin_y
+                self._tlog(1, f"[PAUSE] sim_pos=({sim_pos_x:.3f},{sim_pos_y:.3f})")
+
+                # Velocity: same two transforms, no origin offset
+                vel_after_fixed = apply_rot2d(VISION_TO_DGPPO_R, np.array([vx, vy]))
+                self._tlog(2, f"[PAUSE][vel] after VISION_TO_DGPPO_R: {vel_after_fixed}")
+                vel_sim_unscaled = apply_rot2d(R_alpha, vel_after_fixed)
+                sim_vel_x = vel_sim_unscaled[0] / SCALE_SPOT_TO_SIM
+                sim_vel_y = vel_sim_unscaled[1] / SCALE_SPOT_TO_SIM
+                self._tlog(2, f"[PAUSE] sim_vel=({sim_vel_x:.3f},{sim_vel_y:.3f})")
+
                 self.latest_agent_state = jnp.expand_dims(
                     jnp.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=jnp.float32), axis=0
                 )
@@ -456,15 +462,31 @@ class DGPPOROSNode(Node):
         old_scaled_ranges_np = raw_ranges_np / self.scale_2d_3d
         scaled_ranges_np = old_scaled_ranges_np  # no reversal: clustering node bins by atan2 (CCW), matches visualizer
         # Update agent state from real Spot odometry
-        pos, vel, yaw = self._get_spot_state()
+        x, y, vx, vy, yaw = self._get_spot_state()
+        self._tlog(1, f"[STATE] vision_pos=({x:.3f},{y:.3f})  vision_vel=({vx:.3f},{vy:.3f})  yaw={math.degrees(yaw):.1f}°")
         yaw_msg = Float32MultiArray()
         yaw_msg.data = [yaw]
         self.spot_yaw_pub.publish(yaw_msg)
-        _ca, _sa = math.cos(self._world_alpha_rad), math.sin(self._world_alpha_rad)
-        spot_sim_pos_x = (-_sa * pos.x - _ca * pos.y) / self.scale_2d_3d + self.sim_origin_x
-        spot_sim_pos_y = ( _ca * pos.x - _sa * pos.y) / self.scale_2d_3d + self.sim_origin_y
-        spot_sim_vel_x = (-_sa * vel.x - _ca * vel.y) / self.scale_2d_3d
-        spot_sim_vel_y = ( _ca * vel.x - _sa * vel.y) / self.scale_2d_3d
+
+        # Position: vision → sim (two separate transforms)
+        # Transform 1: fixed 90° CW from above (vision → DGPPO frame)
+        pos_after_fixed = apply_rot2d(VISION_TO_DGPPO_R, np.array([x, y]))
+        self._tlog(2, f"[STATE][pos] after VISION_TO_DGPPO_R: {pos_after_fixed}")
+        # Transform 2: runtime world_alpha rotation
+        R_alpha = rot2d(self._world_alpha_rad)
+        pos_sim_unscaled = apply_rot2d(R_alpha, pos_after_fixed)
+        self._tlog(2, f"[STATE][pos] after alpha R (alpha={math.degrees(self._world_alpha_rad):.1f}°): {pos_sim_unscaled}")
+        spot_sim_pos_x = pos_sim_unscaled[0] / SCALE_SPOT_TO_SIM + self.sim_origin_x
+        spot_sim_pos_y = pos_sim_unscaled[1] / SCALE_SPOT_TO_SIM + self.sim_origin_y
+        self._tlog(1, f"[STATE] sim_pos=({spot_sim_pos_x:.3f},{spot_sim_pos_y:.3f})")
+
+        # Velocity: same two transforms, no origin offset
+        vel_after_fixed = apply_rot2d(VISION_TO_DGPPO_R, np.array([vx, vy]))
+        self._tlog(2, f"[STATE][vel] after VISION_TO_DGPPO_R: {vel_after_fixed}")
+        vel_sim_unscaled = apply_rot2d(R_alpha, vel_after_fixed)  # reuse R_alpha from above
+        spot_sim_vel_x = vel_sim_unscaled[0] / SCALE_SPOT_TO_SIM
+        spot_sim_vel_y = vel_sim_unscaled[1] / SCALE_SPOT_TO_SIM
+        self._tlog(2, f"[STATE] sim_vel=({spot_sim_vel_x:.3f},{spot_sim_vel_y:.3f})")
         if (self.get_parameter('use_projected_vel').get_parameter_value().bool_value
                 and self._projected_sim_vel is not None
                 and self._projected_sim_pos is not None):
@@ -489,8 +511,12 @@ class DGPPOROSNode(Node):
                 f'odom_vel=({spot_sim_vel_x:.3f}, {spot_sim_vel_y:.3f})  [using odometry]',
                 throttle_duration_sec=0.5,
             )
-        vel_body_fwd =  vel.x * math.cos(yaw) + vel.y * math.sin(yaw)   # body +x (forward)
-        vel_body_lat = -vel.x * math.sin(yaw) + vel.y * math.cos(yaw)   # body +y (left)
+        # Body-frame velocity: vision → body (rot2d(-yaw))
+        R_vis_to_body = rot2d(-yaw)
+        self._tlog(2, f"[STATE] R_vis_to_body (yaw={math.degrees(yaw):.1f}°):\n{R_vis_to_body}")
+        v_body = apply_rot2d(R_vis_to_body, np.array([vx, vy]))
+        vel_body_fwd, vel_body_lat = float(v_body[0]), float(v_body[1])
+        self._tlog(2, f"[STATE] body_vel fwd={vel_body_fwd:.3f} lat={vel_body_lat:.3f} m/s")
         scaled_latest_state_np = np.array([sim_pos_x, sim_pos_y, sim_vel_x, sim_vel_y], dtype=np.float32)
         self.latest_agent_state = jnp.expand_dims(jnp.array(scaled_latest_state_np), axis=0)
         self.get_logger().info(
@@ -519,10 +545,10 @@ class DGPPOROSNode(Node):
             'ranges_raw': raw_ranges_np.tolist(),
             'scale_2d_3d': self.scale_2d_3d,
             'world_alpha_deg': float(math.degrees(self._world_alpha_rad)),
-            'pos_spot_x': float(pos.x),
-            'pos_spot_y': float(pos.y),
-            'vel_spot_x': float(vel.x),
-            'vel_spot_y': float(vel.y),
+            'pos_spot_x': float(x),
+            'pos_spot_y': float(y),
+            'vel_spot_x': float(vx),
+            'vel_spot_y': float(vy),
             'yaw_deg': float(math.degrees(yaw)),
             'sim_pos_x': float(sim_pos_x),
             'sim_pos_y': float(sim_pos_y),
@@ -568,7 +594,7 @@ class DGPPOROSNode(Node):
             sy = self.get_parameter('spoof_action_y').get_parameter_value().double_value
             action = jnp.array([[sx, sy]], dtype=jnp.float32)
             self.get_logger().info(f'[SPOOF] action x={sx:.3f}  y={sy:.3f}', throttle_duration_sec=0.5)
-        action = self.clip_action(action)
+        action = jnp.clip(action, -1.0, 1.0)
         action_raw_flat = [float(a) for a in np.array(action).flatten()]  # pre-rotation policy output
         rot_deg = self.get_parameter('action_rotation_deg').get_parameter_value().double_value
         if rot_deg != 0.0:
@@ -587,7 +613,7 @@ class DGPPOROSNode(Node):
         self._tick_record['action_sim_y'] = action_flat[1] if len(action_flat) > 1 else 0.0
         self._tick_record['inference_ms'] = round(_inf_ms, 2)
 
-        new_movement_targets = jnp.squeeze(self.agent_step_euler(self.latest_agent_state, action), axis=0)
+        new_movement_targets = jnp.squeeze(self.env_instance.agent_step_euler(self.latest_agent_state, action), axis=0)
         self._projected_sim_pos = (float(new_movement_targets[0]), float(new_movement_targets[1]))
         self._projected_sim_vel = (float(new_movement_targets[2]), float(new_movement_targets[3]))
 
@@ -598,25 +624,34 @@ class DGPPOROSNode(Node):
         else:
             self.next_cluster_bonus_awarded = bonus_awarded_updated
 
-        # new_movement_targets[2:4] = sim-world-frame velocity (action * SIM_MAX_VEL).
-        # DGPPO actions are in the world frame; synchro_velocity_command takes body frame.
-        # Step 1 — sim world → vision (world) frame:
-        #   sim +Y (forward) = vision +X;  sim +X (right) = −vision +Y (left)
-        # Step 2 — vision → body frame via R(−yaw):
-        #   body_fwd  =  v_wx * cos(yaw) + v_wy * sin(yaw)
-        #   body_left = −v_wx * sin(yaw) + v_wy * cos(yaw)
-        # Step 3 — proportional-clamp to SPOT_MAX_VEL (SDK hard limit is 2.0 m/s)
+        # Transform DGPPO sim-world velocity → Spot body-frame velocity command.
         SPOT_MAX_VEL = 0.5  # m/s — conservative safe limit
         _sim_vx = float(new_movement_targets[2])
         _sim_vy = float(new_movement_targets[3])
-        v_world_x = (-_sa * _sim_vx + _ca * _sim_vy) * self.scale_2d_3d   # sim → vision +X (R(-(π/2+α)))
-        v_world_y = (-_ca * _sim_vx - _sa * _sim_vy) * self.scale_2d_3d   # sim → vision +Y
-        v_x_raw =  v_world_x * math.cos(yaw) + v_world_y * math.sin(yaw)  # body forward
-        v_y_raw = -v_world_x * math.sin(yaw) + v_world_y * math.cos(yaw)  # body left
+        self._tlog(1, f"[ACTION] dgppo_vel_sim=({_sim_vx:.3f},{_sim_vy:.3f})")
+
+        # Step 1: undo world_alpha (inverse of transform 2 in vision→sim)
+        R_alpha_inv = rot2d(-self._world_alpha_rad)
+        vel_after_alpha_inv = apply_rot2d(R_alpha_inv, np.array([_sim_vx, _sim_vy]))
+        self._tlog(2, f"[ACTION] after alpha_inv (alpha={math.degrees(self._world_alpha_rad):.1f}°): {vel_after_alpha_inv}")
+
+        # Step 2: fixed 90° CCW from above (DGPPO → vision frame), then scale to m/s
+        vel_vision = apply_rot2d(DGPPO_TO_VISION_R, vel_after_alpha_inv) * SCALE_SPOT_TO_SIM
+        self._tlog(1, f"[ACTION] vel_vision=({vel_vision[0]:.3f},{vel_vision[1]:.3f}) m/s")
+
+        # Step 3: vision → body frame (rot2d(-yaw), yaw from _get_spot_state above)
+        R_vis_to_body_cmd = rot2d(-yaw)
+        self._tlog(2, f"[ACTION] R_vis_to_body (yaw={math.degrees(yaw):.1f}°):\n{R_vis_to_body_cmd}")
+        v_body_cmd = apply_rot2d(R_vis_to_body_cmd, vel_vision)
+        v_x_raw, v_y_raw = float(v_body_cmd[0]), float(v_body_cmd[1])
+        self._tlog(1, f"[ACTION] vel_body_raw=({v_x_raw:.3f},{v_y_raw:.3f}) m/s")
+
+        # Step 4: proportional clamp to SPOT_MAX_VEL
         max_component = max(abs(v_x_raw), abs(v_y_raw))
-        scale = min(1.0, SPOT_MAX_VEL / max_component) if max_component > 0 else 1.0
-        v_x_target = v_x_raw * scale
-        v_y_target = v_y_raw * scale
+        clamp = min(1.0, SPOT_MAX_VEL / max_component) if max_component > 0.0 else 1.0
+        v_x_target = v_x_raw * clamp
+        v_y_target = v_y_raw * clamp
+        self._tlog(1, f"[ACTION] vel_body_clamped=({v_x_target:.3f},{v_y_target:.3f}) m/s  clamp={clamp:.3f}")
 
         # ── Step-test overrides ───────────────────────────────────────────────
         STEP_VX = 0.4  # m/s forward — safe walking speed for both modes
@@ -662,8 +697,8 @@ class DGPPOROSNode(Node):
 
         _dbg = Float32MultiArray()
         _dbg.data = [
-            float(pos.x),        float(pos.y),        # [0,1]  vision frame pos (m)
-            float(vel.x),        float(vel.y),        # [2,3]  vision frame vel (m/s)
+            float(x),            float(y),            # [0,1]  vision frame pos (m)
+            float(vx),           float(vy),           # [2,3]  vision frame vel (m/s)
             float(vel_body_fwd), float(vel_body_lat), # [4,5]  body frame vel: fwd, left (m/s)
             float(sim_pos_x),    float(sim_pos_y),    # [6,7]  DGPPO sim pos (scaled)
             float(sim_vel_x),    float(sim_vel_y),    # [8,9]  DGPPO sim vel (scaled)
@@ -697,25 +732,6 @@ class DGPPOROSNode(Node):
                 f"vx={v_x_target:.3f}  vy={v_y_target:.3f}",
                 throttle_duration_sec=0.5)
 
-    def agent_step_euler(self, agent_states: AgentState, action: Action) -> AgentState:
-        return self.env_instance.agent_step_euler(agent_states, action)
-
-    def state_lim(self) -> Tuple[State, State]:
-        return self.env_instance.state_lim()
-
-    def action_lim(self) -> Tuple[Action, Action]:
-        lower_lim = jnp.ones(2) * -1.0
-        upper_lim = jnp.ones(2)
-        return lower_lim, upper_lim
-
-    def clip_state(self, state: State) -> State:
-        lower_limit, upper_limit = self.state_lim()
-        return jnp.clip(state, lower_limit, upper_limit)
-
-    def clip_action(self, action: Action) -> Action:
-        lower_limit, upper_limit = self.action_lim()
-        return jnp.clip(action, lower_limit, upper_limit)
-
     def _build_state_and_graph(self, agent_state_np: np.ndarray, scaled_ranges: np.ndarray,
                                mapped_current_cluster_id: int, mapped_start_cluster_id: int,
                                mapped_next_cluster_id: int, bonus_awarded_updated: jnp.ndarray,
@@ -726,15 +742,16 @@ class DGPPOROSNode(Node):
         agent_pos_2d = np.array(agent_state_np[0, :2])
 
         # ── 1. Obstacle hits: resample n_rays_phys bins → n_rays (32) training beams ──
-        # LiDAR ranges are in body frame. Rotate into world (sim) frame by adding yaw.
-        # Spot yaw=0 = facing +X; sim forward = +Y, so add π/2 to align conventions.
-        angles_phys = np.linspace(0, 2 * np.pi, self.n_rays_phys, endpoint=False)
-        angles_beam = np.linspace(-np.pi, np.pi - 2 * np.pi / n_rays, n_rays)
-        # Sensor bin to look up for training beam at θ_beam (sim world angle):
-        #   φ_sensor = θ_beam − π/2 − α − yaw
-        # Driver outputs bins in Spot body frame (+x forward, +y left, CCW).
-        # Training lidar is world-frame (no agent yaw in training dirs).
-        ranges_res = np.interp(np.mod(angles_beam - np.pi / 2 - self._world_alpha_rad - yaw, 2 * np.pi), angles_phys, scaled_ranges)
+        # Physical bins are in Spot body frame; training beams are in sim world frame.
+        # Lookup: phi_sensor = theta_beam - pi/2 - world_alpha_rad - yaw  (mod 2*pi)
+        ranges_res = resample_lidar(
+            scaled_ranges,
+            n_rays=n_rays,
+            n_rays_phys=self.n_rays_phys,
+            world_alpha_rad=self._world_alpha_rad,
+            yaw=yaw,
+        )
+        angles_beam = lidar_angles(n_rays)  # needed for obs_hits positions below
         # LIDAR ROTATION VERIFY: min-range beam index and angle tell you where the nearest obstacle
         # is in the sim world frame. At yaw≈0: idx≈24 (angle≈π/2) = ahead; idx≈16 (angle≈0) = right;
         # idx≈0/32 (angle≈±π) = left. Log this to verify CW/CCW convention is correct.
