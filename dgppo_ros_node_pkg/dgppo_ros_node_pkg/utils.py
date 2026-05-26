@@ -19,13 +19,13 @@ from typing import Tuple
 SCALE_SPOT_TO_SIM: int = 11
 
 # Fixed 90° rotation vision-frame → DGPPO-sim-frame (CW from above = +pi/2 in standard math)
-VISION_TO_DGPPO_R: np.ndarray = np.array(
+DGPPO_TO_VISION_R: np.ndarray = np.array(
     [[0.0, -1.0],
      [1.0,  0.0]], dtype=np.float64
 )
 
 # Inverse: DGPPO-sim-frame → vision-frame (CCW from above = -pi/2 in standard math)
-DGPPO_TO_VISION_R: np.ndarray = np.array(
+VISION_TO_DGPPO_R: np.ndarray = np.array(
     [[ 0.0, 1.0],
      [-1.0, 0.0]], dtype=np.float64
 )

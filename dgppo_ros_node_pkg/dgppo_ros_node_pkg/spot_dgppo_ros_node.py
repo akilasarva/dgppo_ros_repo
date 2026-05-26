@@ -217,7 +217,7 @@ class DGPPOROSNode(Node):
         self.get_logger().info("Initializing the Spot robot.")
         self.sdk = bosdyn.client.create_standard_sdk("understanding-spot")
         self.robot = self.sdk.create_robot("10.0.0.3")
-        self.robot.authenticate(username="dcist", password="bbbdddaaaiii")
+        self.robot.authenticate(username="user", password="pass")
         self.robot.time_sync.wait_for_sync()
 
         self.state_client = self.robot.ensure_client("robot-state")
