@@ -463,8 +463,8 @@ class DGPPOROSNode(Node):
         _ca, _sa = math.cos(self._world_alpha_rad), math.sin(self._world_alpha_rad)
         spot_sim_pos_x = (-_sa * pos.x - _ca * pos.y) / self.scale_2d_3d + self.sim_origin_x
         spot_sim_pos_y = ( _ca * pos.x - _sa * pos.y) / self.scale_2d_3d + self.sim_origin_y
-        spot_sim_vel_x = -_sa * vel.x - _ca * vel.y
-        spot_sim_vel_y =  _ca * vel.x - _sa * vel.y
+        spot_sim_vel_x = (-_sa * vel.x - _ca * vel.y) / self.scale_2d_3d
+        spot_sim_vel_y = ( _ca * vel.x - _sa * vel.y) / self.scale_2d_3d
         if (self.get_parameter('use_projected_vel').get_parameter_value().bool_value
                 and self._projected_sim_vel is not None
                 and self._projected_sim_pos is not None):
