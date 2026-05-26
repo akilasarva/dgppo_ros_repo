@@ -40,7 +40,7 @@ CLUSTER_NAMES = {0: "open_space", 1: "approach", 2: "on_bridge", 3: "exit"}
 # ── Shared state ───────────────────────────────────────────────────────────────
 
 class DebugState:
-    def __init__(self, plan_sequence, bearing_map, centroids):
+    def __init__(self, plan_sequence, bearing_map, centroids, log_file=None):
         self._lock          = threading.Lock()
         self.state_debug    = None      # 18-float array from /dgppo_state_debug
         self.spot_yaw       = 0.0
@@ -52,6 +52,7 @@ class DebugState:
         self.plan_sequence  = plan_sequence
         self.bearing_map    = bearing_map
         self.centroids      = centroids  # {"1": [fwd_m, lat_m, ...], ...}
+        self._log_file      = log_file   # open file handle for JSONL output, or None
         # velocity history for lag plot
         self._vel_t0        = None
         self.vel_times      = deque(maxlen=VEL_HIST_LEN)
@@ -75,6 +76,55 @@ class DebugState:
             if len(data) >= 10:
                 self.obs_vx_hist.append(data[8])
                 self.obs_vy_hist.append(data[9])
+            if self._log_file is not None:
+                self._log_tick(data, now)
+
+    def _log_tick(self, sd, now):
+        """Write one JSONL record. Called inside the lock from set_state_debug."""
+        ps    = self.plan_step
+        plan  = self.plan_sequence
+        start_c = plan[ps]['start'] if ps < len(plan) else None
+        next_c  = plan[ps]['next']  if ps < len(plan) else None
+        if start_c is not None and next_c is not None:
+            key     = f"{start_c}-{next_c}"
+            bearing = self.bearing_map.get(key, 0.0) + math.pi / 2
+        else:
+            bearing = 0.0
+        record = {
+            't':              now,
+            'plan_step':      ps,
+            'plan_start':     start_c,
+            'plan_next':      next_c,
+            'bearing_rad':    bearing,
+            'bearing_deg':    math.degrees(bearing),
+            'raw_cluster':    self.raw_cluster,
+            'terrain_id':     self.terrain_id,
+            'yaw_deg':        math.degrees(self.spot_yaw),
+            'world_alpha_rad': self.world_alpha,
+            # full state_debug vector (18 floats)
+            'state_debug':    list(sd),
+            # named extracts for convenience
+            'vision_pos':     [sd[0], sd[1]],
+            'vision_vel_ms':  [sd[2], sd[3]],
+            'sim_pos':        [sd[6], sd[7]]    if len(sd) > 7  else None,
+            'sim_vel':        [sd[8], sd[9]]    if len(sd) > 9  else None,
+            'cmd_body_ms':    [sd[10], sd[11]]  if len(sd) > 11 else None,
+            'action_raw':     [sd[12], sd[13]]  if len(sd) > 13 else None,
+            'inference_ms':   sd[14]            if len(sd) > 14 else None,
+            'action_post':    [sd[15], sd[16]]  if len(sd) > 16 else None,
+            'cmd_vx_sim':     sd[15] * SIM_MAX_VEL if len(sd) > 16 else None,
+            'cmd_vy_sim':     sd[16] * SIM_MAX_VEL if len(sd) > 16 else None,
+            # ranges summary (avoid logging 72 floats every tick unless needed)
+            'ranges_min_m':   float(self.processed_ranges.min()) if self.processed_ranges is not None else None,
+            'ranges_max_m':   float(self.processed_ranges.max()) if self.processed_ranges is not None else None,
+            'ranges_mean_m':  float(self.processed_ranges.mean()) if self.processed_ranges is not None else None,
+            'ranges_raw':     self.processed_ranges.tolist() if self.processed_ranges is not None else None,
+        }
+        try:
+            self._log_file.write(json.dumps(record) + '\n')
+            self._log_file.flush()
+        except Exception:
+            pass
 
     def set_spot_yaw(self, yaw):
         with self._lock: self.spot_yaw = yaw
@@ -683,12 +733,25 @@ def main():
                         help='Path to plan JSON file')
     parser.add_argument('--port', type=int, default=WEB_PORT,
                         help=f'Flask port (default {WEB_PORT})')
+    parser.add_argument('--no-log', action='store_true',
+                        help='Disable JSONL logging to disk')
     args, _ = parser.parse_known_args()
 
     seq, bmap, cents = _load_plan(args.plan_json)
 
+    # Open log file
+    log_file = None
+    if not args.no_log:
+        import datetime
+        log_dir = os.path.join(os.path.dirname(__file__), 'debug_logs')
+        os.makedirs(log_dir, exist_ok=True)
+        ts       = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        log_path = os.path.join(log_dir, f'simviz_{ts}.jsonl')
+        log_file = open(log_path, 'w')
+        print(f"[SIM VIZ] Logging to {log_path}")
+
     global _state
-    _state = DebugState(seq, bmap, cents)
+    _state = DebugState(seq, bmap, cents, log_file=log_file)
 
     rclpy.init()
     node = SimVisSubscriber(_state)
@@ -698,7 +761,11 @@ def main():
 
     print(f"[SIM VIZ] Listening on http://0.0.0.0:{args.port}")
     print(f"[SIM VIZ] SSH tunnel: ssh -L {args.port}:localhost:{args.port} swarm@<robot-ip>")
-    app.run(host='0.0.0.0', port=args.port, threaded=True)
+    try:
+        app.run(host='0.0.0.0', port=args.port, threaded=True)
+    finally:
+        if log_file is not None:
+            log_file.close()
 
 
 if __name__ == '__main__':
