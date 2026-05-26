@@ -518,12 +518,18 @@ class DGPPOROSNode(Node):
             'n_beams_total': len(raw_ranges_np),
             'ranges_raw': raw_ranges_np.tolist(),
             'scale_2d_3d': self.scale_2d_3d,
+            'world_alpha_deg': float(math.degrees(self._world_alpha_rad)),
             'pos_spot_x': float(pos.x),
             'pos_spot_y': float(pos.y),
             'vel_spot_x': float(vel.x),
             'vel_spot_y': float(vel.y),
             'yaw_deg': float(math.degrees(yaw)),
-            'bearing_deg': float(math.degrees(bearing_val)),
+            'sim_pos_x': float(sim_pos_x),
+            'sim_pos_y': float(sim_pos_y),
+            'sim_vel_x': float(sim_vel_x),
+            'sim_vel_y': float(sim_vel_y),
+            'bearing_plan_deg': float(math.degrees(self.bearing_map.get(bearing_key, 0.0))),
+            'bearing_dgppo_deg': float(math.degrees(bearing_val)),
             'angular_offset_deg': float(angular_offset),
             'terrain_id': int(self.latest_terrain_id),
         }
@@ -575,12 +581,11 @@ class DGPPOROSNode(Node):
                 throttle_duration_sec=0.5,
             )
         action_flat = [float(a) for a in np.array(action).flatten()]  # post-rotation (sent to Spot)
-        self._tick_record['action'] = action_flat
+        self._tick_record['action_raw_sim_x'] = action_raw_flat[0] if len(action_raw_flat) > 0 else 0.0
+        self._tick_record['action_raw_sim_y'] = action_raw_flat[1] if len(action_raw_flat) > 1 else 0.0
+        self._tick_record['action_sim_x'] = action_flat[0] if len(action_flat) > 0 else 0.0
+        self._tick_record['action_sim_y'] = action_flat[1] if len(action_flat) > 1 else 0.0
         self._tick_record['inference_ms'] = round(_inf_ms, 2)
-        self._tick_record['action_vx_ms'] = action_flat[0] * self.scale_2d_3d if len(action_flat) > 0 else 0.0
-        self._tick_record['action_vy_ms'] = action_flat[1] * self.scale_2d_3d if len(action_flat) > 1 else 0.0
-        self._debug_log_file.write(json.dumps(self._tick_record) + '\n')
-        self._debug_log_file.flush()
 
         new_movement_targets = jnp.squeeze(self.agent_step_euler(self.latest_agent_state, action), axis=0)
         self._projected_sim_pos = (float(new_movement_targets[0]), float(new_movement_targets[1]))
@@ -649,6 +654,11 @@ class DGPPOROSNode(Node):
             )
         else:
             self._step_test_t0 = None  # reset timer when both modes are off
+
+        self._tick_record['cmd_body_fwd_ms'] = float(v_x_target)
+        self._tick_record['cmd_body_left_ms'] = float(v_y_target)
+        self._debug_log_file.write(json.dumps(self._tick_record) + '\n')
+        self._debug_log_file.flush()
 
         _dbg = Float32MultiArray()
         _dbg.data = [
