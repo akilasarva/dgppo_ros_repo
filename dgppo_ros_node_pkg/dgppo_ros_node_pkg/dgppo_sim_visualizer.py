@@ -733,6 +733,9 @@ def main():
                         help='Path to plan JSON file')
     parser.add_argument('--port', type=int, default=WEB_PORT,
                         help=f'Flask port (default {WEB_PORT})')
+    parser.add_argument('--log-dir', default=None,
+                        help='Directory for JSONL log (default: debug_logs/ next to this file). '
+                             'File is named simviz_<timestamp>.jsonl automatically.')
     parser.add_argument('--no-log', action='store_true',
                         help='Disable JSONL logging to disk')
     args, _ = parser.parse_known_args()
@@ -743,7 +746,8 @@ def main():
     log_file = None
     if not args.no_log:
         import datetime
-        log_dir = os.path.join(os.path.dirname(__file__), 'debug_logs')
+        log_dir = (os.path.abspath(args.log_dir) if args.log_dir
+                   else os.path.join(os.path.dirname(os.path.abspath(__file__)), 'debug_logs'))
         os.makedirs(log_dir, exist_ok=True)
         ts       = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         log_path = os.path.join(log_dir, f'simviz_{ts}.jsonl')
