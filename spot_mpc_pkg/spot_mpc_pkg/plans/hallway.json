@@ -1,0 +1,9 @@
+{
+  "_comment": "Everything is in the PLAN FRAME: re-zeroed via /mpc_reset_origin, so (0,0)/yaw=0 means 'wherever Spot was standing, facing whatever direction, at the moment you last pressed Reset Origin'. No bridge/wall geometry here -- that was only ever a simulation proxy and this node's scoring never reads it. What actually matters, per cluster pair 'start-next': bearing_map's angle (radians, plan-frame -- this is the PRIMARY steering signal and should be the most reliable number you have, e.g. from a known map/topology), and centroids' rough (forward, left) location in metres for each cluster (used for Voronoi cluster-identity classification and a soft directional nudge -- fine if only approximately known).",
+  "plan_sequence": [{"start": 0, "next": 1}],
+  "bearing_map": {"0-1": 0.0},
+  "centroids": {
+    "0": [0.0, 0.0],
+    "1": [15.0, 0.0]
+  }
+}

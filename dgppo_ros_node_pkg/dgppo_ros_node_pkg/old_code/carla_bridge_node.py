@@ -23,7 +23,8 @@ from std_msgs.msg import Float32MultiArray, Int16
 VIRIDIS = np.array(cm.get_cmap('plasma').colors)
 VID_RANGE = np.linspace(0.0, 1.0, VIRIDIS.shape[0])
 COOL_RANGE = np.linspace(0.0, 1.0, VIRIDIS.shape[0])
-COOL = np.array(cm.get_cmap('winter')(COOL_RANGE))
+COOL = np.array(c
+                m.get_cmap('winter')(COOL_RANGE))
 COOL = COOL[:, :3]
 
 def add_open3d_axis(vis):
