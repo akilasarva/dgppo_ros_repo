@@ -81,26 +81,37 @@ from bosdyn.client.robot_command import RobotCommandBuilder, RobotCommandClient
 from .plan import map_cluster_id
 from .spot_utils import get_spot_state
 
-# ── SamplingMPC (loaded from the new_dgppo repo checkout) ──────────────────────
-# No BehaviorAssociator here: that's a synthetic-corridor ("bridges") proxy
-# used only for simulation, and SamplingMPC's own docstring documents a
-# real-robot mode that skips it entirely — see the module docstring above.
-import importlib.util as _ilu
+# ── Inlined rollout + collision helpers (no external deps) ────────────────────
+
+def unicycle_rollout(state0, ctrl, dt):
+    K, N = ctrl.shape[:2]
+    traj = np.zeros((K, N + 1, 3), dtype=np.float32)
+    traj[:, 0, :] = state0
+    for n in range(N):
+        x, y, th = traj[:, n, 0], traj[:, n, 1], traj[:, n, 2]
+        v, om = ctrl[:, n, 0], ctrl[:, n, 1]
+        traj[:, n + 1, 0] = x + v * np.cos(th) * dt
+        traj[:, n + 1, 1] = y + v * np.sin(th) * dt
+        traj[:, n + 1, 2] = th + om * dt
+    return traj
 
 
-def _load_mod(name, rel):
-    _root = os.environ.get("NEW_DGPPO_ROOT", os.path.expanduser("~/new_dgppo"))
-    path = os.path.join(_root, rel)
-    spec = _ilu.spec_from_file_location(name, path)
-    mod = _ilu.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod
+class _LocalOccGrid:
+    def __init__(self):
+        self._hits = np.empty((0, 2), dtype=np.float32)
 
+    def update(self, hits):
+        if hits is None or len(hits) == 0:
+            self._hits = np.empty((0, 2), dtype=np.float32)
+        else:
+            self._hits = np.asarray(hits, dtype=np.float32)
 
-_mpc_mod = _load_mod("sampling_mpc", "dgppo/env/sampling_mpc.py")
-
-SamplingMPC = _mpc_mod.SamplingMPC
-unicycle_rollout = _mpc_mod.unicycle_rollout
+    def check_collisions(self, traj):
+        if len(self._hits) == 0:
+            return np.full(traj.shape[:2], np.inf, dtype=np.float32)
+        pts = traj[:, :, :2]
+        diff = pts[:, :, None, :] - self._hits[None, None, :, :]
+        return np.linalg.norm(diff, axis=-1).min(axis=-1).astype(np.float32)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -188,7 +199,7 @@ class SpotMPCNode(Node):
         self._mpc_N = N
         self._mpc_dt = dt
         self._mpc_sr = sr
-        self._mpc = SamplingMPC(K=K, N=N, dt=dt, safety_radius=sr, lidar_grid_size=1.5)
+        self._occ_grid = _LocalOccGrid()
 
         # Current state variables
         self.latest_ranges_msg = None
@@ -495,8 +506,8 @@ class SpotMPCNode(Node):
         traj_local = rollouts[:, 1:, :]                       # (K, N, 3)
 
         # ── Step 4: EDT collision check ───────────────────────────────────────
-        self._mpc._occ_grid.update(hits_in)
-        dist_values = self._mpc._occ_grid.check_collisions(traj_local)
+        self._occ_grid.update(hits_in)
+        dist_values = self._occ_grid.check_collisions(traj_local)
 
         # ── Step 5: Global endpoints ──────────────────────────────────────────
         yaw = state.yaw
@@ -540,7 +551,7 @@ class SpotMPCNode(Node):
         scores += bearing_parts
 
         # ── Step 8: EDT mask ──────────────────────────────────────────────────
-        collision = (dist_values < self._mpc.safety_radius).any(axis=1)
+        collision = (dist_values < self._mpc_sr).any(axis=1)
         scores[collision] = -np.inf
         edt_blocked = float(np.sum(collision)) / K
 
@@ -564,7 +575,7 @@ class SpotMPCNode(Node):
             d_min = float(np.min(dists))
             nearest_hit = hits_in[int(np.argmin(dists))]
             cos_a = math.cos(math.atan2(nearest_hit[1], nearest_hit[0]))
-            d_safe, alpha = 0.04, 2.0
+            d_safe, alpha = 0.3, 2.0
             h = d_min - d_safe
             if cos_a > 1e-3 and v_cmd * cos_a > alpha * h:
                 v_cmd = max(0.0, alpha * h / cos_a)
