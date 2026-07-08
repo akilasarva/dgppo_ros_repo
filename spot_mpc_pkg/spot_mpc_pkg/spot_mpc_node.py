@@ -287,6 +287,7 @@ class SpotMPCNode(Node):
         self.declare_parameter("goal_x", 0.0)
         self.declare_parameter("goal_y", 0.0)
         self.declare_parameter("use_carson", False)
+        self.declare_parameter("skip_lidar", False)
         self._last_omega_cmd = 0.0   # tracked for Carson NMPC initial state
         self.n_rays_phys = 72
         self._origin_file = os.path.join(
@@ -589,8 +590,9 @@ class SpotMPCNode(Node):
         self._publish_debug(state, result, expected_start, expected_next)
 
     def _check_topics(self, debug_mode: bool) -> bool:
+        skip_lidar = self.get_parameter("skip_lidar").get_parameter_value().bool_value
         missing = []
-        if self.latest_ranges_msg is None:
+        if not skip_lidar and self.latest_ranges_msg is None:
             missing.append("/processed_ranges")
         if not debug_mode and self.latest_predicted_cluster_id is None:
             missing.append("/predicted_cluster")
@@ -615,7 +617,11 @@ class SpotMPCNode(Node):
         self.timer.cancel()
 
     def _update_spot_state(self) -> SpotState:
-        raw_ranges = np.array(self.latest_ranges_msg.data, dtype=np.float32)
+        if self.latest_ranges_msg is not None:
+            raw_ranges = np.array(self.latest_ranges_msg.data, dtype=np.float32)
+        else:
+            # skip_lidar mode — dummy max-range scan, no collision masking
+            raw_ranges = np.full(self.n_rays_phys, 8.0, dtype=np.float32)
         x, y, vx, vy, yaw = self._get_spot_state()
         px, py, pyaw = self._to_plan_frame(x, y, yaw)
         c, s = math.cos(-self._origin_yaw), math.sin(-self._origin_yaw)
