@@ -105,7 +105,7 @@ class SamplingMPCSpotNode(Node):
         self.declare_parameter("dry_run",      False)
         self.declare_parameter("sampling_mpc_K",            500)
         self.declare_parameter("sampling_mpc_N",            8)
-        self.declare_parameter("sampling_mpc_safety_radius", 0.06)
+        self.declare_parameter("sampling_mpc_safety_radius", 0.3)
         self.declare_parameter("sampling_mpc_dt",           0.2)
         # world_alpha_rad: kept as a stub for future calibration; not used for
         # SamplingMPC since it outputs body-frame commands directly.
@@ -117,7 +117,8 @@ class SamplingMPCSpotNode(Node):
 
     def _init_model(self):
         """Load plan, build BehaviorAssociator and SamplingMPC from plan centroids."""
-        self.plan_sequence, self.bearing_map, self.cluster_centroids = load_plan()
+        _spot_plan = os.path.join(os.path.dirname(__file__), "plans", "bridge_spot.json")
+        self.plan_sequence, self.bearing_map, self.cluster_centroids = load_plan(_spot_plan)
         self.current_plan_step_index = 0
 
         K = self.get_parameter("sampling_mpc_K").get_parameter_value().integer_value
@@ -131,7 +132,7 @@ class SamplingMPCSpotNode(Node):
             self.cluster_centroids[str(k)]
             for k in sorted(int(k) for k in self.cluster_centroids)
         ], dtype=np.float32)
-        self._true_cents = cent_array   # (n_c, 2)
+        self._true_cents = cent_array[:, :2]   # (n_c, 2) — drop z column
 
         # BehaviorAssociator uses bridge wall OBBs; derive them from centroid spread.
         # The plan JSON must include "bridges" key with OBB list; fall back to
@@ -501,7 +502,7 @@ class SamplingMPCSpotNode(Node):
             d_min   = float(np.min(dists))
             nearest_hit = hits_in[int(np.argmin(dists))]
             cos_a   = math.cos(math.atan2(nearest_hit[1], nearest_hit[0]))
-            d_safe, alpha = 0.04, 2.0
+            d_safe, alpha = 0.3, 2.0
             h = d_min - d_safe
             if cos_a > 1e-3 and v_cmd * cos_a > alpha * h:
                 v_cmd = max(0.0, alpha * h / cos_a)
