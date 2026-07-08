@@ -161,6 +161,7 @@ class SpotMPCNode(Node):
         self.declare_parameter("sampling_mpc_N", 8)
         self.declare_parameter("sampling_mpc_safety_radius", 0.06)
         self.declare_parameter("sampling_mpc_dt", 0.2)
+        self.declare_parameter("bearing_only", False)
         self.n_rays_phys = 72
         # Plan-frame origin: (0,0,0) means "use Spot's vision frame as-is".
         # Re-zeroed live via the /mpc_reset_origin service.
@@ -523,7 +524,8 @@ class SpotMPCNode(Node):
         in_start = (nearest == start_id).astype(float)
         in_forbidden = np.isin(nearest, self._forbidden).astype(float)
         cluster_parts = 10.0 * in_target + 1.0 * in_start - 15.0 * in_forbidden
-        scores = cluster_parts.copy()
+        bearing_only = self.get_parameter("bearing_only").get_parameter_value().bool_value
+        scores = np.zeros(K, dtype=np.float32) if bearing_only else cluster_parts.copy()
 
         # ── Step 7: Bearing alignment + soft centroid-direction pull ───────────
         # Primary signal: bearing_map's explicit, independently-known bearing
