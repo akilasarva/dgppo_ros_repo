@@ -500,7 +500,7 @@ class SpotMPCNode(Node):
         K, N = self._mpc_K, self._mpc_N
         dt = self._mpc_dt
         v_seqs = np.random.uniform(0.0, 0.75, (K, N))
-        om_seqs = np.random.uniform(-1.5, 1.5, (K, N))
+        om_seqs = np.random.uniform(-1.0, 1.0, (K, N))
         ctrl = np.stack([v_seqs, om_seqs], axis=2)          # (K, N, 2)
         rollouts = unicycle_rollout(np.zeros(3), ctrl, dt)   # (K, N+1, 3)
         traj_local = rollouts[:, 1:, :]                       # (K, N, 3)
@@ -549,6 +549,12 @@ class SpotMPCNode(Node):
             np.sin(traj_local[:, -1, 2]) * cdir[1])
         bearing_parts = bearing_cos + bearing_dot
         scores += bearing_parts
+
+        # Penalise first-step angular velocity — breaks the tie between smooth
+        # straight rollouts and zigzag rollouts that happen to end at the same
+        # heading. Weight 0.5 is enough to prefer straight over wild-then-recover
+        # without fighting legitimate turns (bearing score still wins at corners).
+        scores -= 0.5 * np.abs(om_seqs[:, 0])
 
         # ── Step 8: EDT mask ──────────────────────────────────────────────────
         collision = (dist_values < self._mpc_sr).any(axis=1)

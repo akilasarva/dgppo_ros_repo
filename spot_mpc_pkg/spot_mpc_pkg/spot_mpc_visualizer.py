@@ -618,7 +618,7 @@ function lidarPt(r,a,cx,cy,sc){
 }
 /* MPC rollout waypoints are (fwd, left) in the same body frame as the lidar beams above. */
 function bodyPt(fwd,left,cx,cy,sc){
-  return[cx + left*sc, cy - fwd*sc];
+  return[cx - left*sc, cy - fwd*sc];
 }
 
 /* Distinct overlay for the single immediate command actually being sent this
