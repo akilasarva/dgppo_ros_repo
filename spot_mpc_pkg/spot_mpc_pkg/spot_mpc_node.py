@@ -73,6 +73,12 @@ from rclpy.qos import qos_profile_sensor_data
 from std_msgs.msg import Int16, Int32, Float32MultiArray
 from std_srvs.srv import Trigger
 
+try:
+    import casadi as ca
+    _CASADI_OK = True
+except ImportError:
+    _CASADI_OK = False
+
 import bosdyn.client.lease
 import bosdyn.client.util
 from bosdyn.client.exceptions import LeaseUseError
@@ -112,6 +118,121 @@ class _LocalOccGrid:
         pts = traj[:, :, :2]
         diff = pts[:, :, None, :] - self._hits[None, None, :, :]
         return np.linalg.norm(diff, axis=-1).min(axis=-1).astype(np.float32)
+
+
+# ── Carson NMPC (CasADi/IPOPT) ────────────────────────────────────────────────
+# Adapted from Carson's waypoint_follow.py.  Only built when casadi is available.
+# State: [x, y, yaw, v, omega] in plan frame.
+# Control: [a_v, a_omega] (accelerations, not velocities directly).
+
+class _CarsonMPC:
+    """CasADi/IPOPT NMPC for point-to-point navigation with soft obstacle avoidance."""
+
+    MAX_OBS = 8
+
+    def __init__(self, N=8, dt=0.2, max_v=0.75, max_omega=1.5,
+                 max_acc=1.0, max_yaw_acc=2.5, ipopt_max_iter=50):
+        self.N, self.dt = N, dt
+        self.max_v, self.max_omega = max_v, max_omega
+        self.max_acc, self.max_yaw_acc = max_acc, max_yaw_acc
+        self._prev_X = self._prev_U = None
+        self._build(ipopt_max_iter)
+
+    def _build(self, ipopt_max_iter):
+        N, dt = self.N, self.dt
+        n_obs = self.MAX_OBS
+        opti = ca.Opti()
+
+        X = opti.variable(5, N + 1)          # [x, y, yaw, v, omega] per step
+        U = opti.variable(2, N)               # [a_v, a_omega] per step
+        S = opti.variable(n_obs, N + 1)       # obstacle slack (>= 0)
+        P_x0   = opti.parameter(5)
+        P_goal = opti.parameter(3)            # [goal_x, goal_y, goal_yaw]
+        P_obs  = opti.parameter(3, n_obs)     # [ox, oy, r] per obstacle
+
+        opti.subject_to(X[:, 0] == P_x0)
+        for k in range(N):
+            xk, uk = X[:, k], U[:, k]
+            opti.subject_to(X[:, k + 1] == ca.vertcat(
+                xk[0] + xk[3] * ca.cos(xk[2]) * dt,
+                xk[1] + xk[3] * ca.sin(xk[2]) * dt,
+                xk[2] + xk[4] * dt,
+                xk[3] + uk[0] * dt,
+                xk[4] + uk[1] * dt,
+            ))
+            opti.subject_to(opti.bounded(-self.max_acc,     U[0, k], self.max_acc))
+            opti.subject_to(opti.bounded(-self.max_yaw_acc, U[1, k], self.max_yaw_acc))
+            opti.subject_to(opti.bounded(0.0, X[3, k + 1], self.max_v))
+            opti.subject_to(opti.bounded(-self.max_omega, X[4, k + 1], self.max_omega))
+
+        opti.subject_to(ca.vec(S) >= 0.0)
+        for k in range(N + 1):
+            for j in range(n_obs):
+                dx = X[0, k] - P_obs[0, j]
+                dy = X[1, k] - P_obs[1, j]
+                opti.subject_to(
+                    ca.sqrt(dx * dx + dy * dy + 1e-9) + S[j, k] >= P_obs[2, j])
+
+        obj = 0
+        for k in range(1, N + 1):
+            scale = 2.0 if k == N else 1.0
+            obj += scale * 500.0 * ((X[0, k] - P_goal[0]) ** 2 + (X[1, k] - P_goal[1]) ** 2)
+            obj += scale * 30.0  * (X[2, k] - P_goal[2]) ** 2
+        obj += 30.0 * X[3, N] ** 2 + 30.0 * X[4, N] ** 2   # slow to stop at goal
+        for k in range(N):
+            obj += 0.1 * U[0, k] ** 2 + 10.0 * U[1, k] ** 2
+        obj += 1e5 * ca.sumsqr(S)
+        opti.minimize(obj)
+
+        opti.solver('ipopt', {
+            'ipopt.print_level': 0, 'print_time': 0, 'ipopt.sb': 'yes',
+            'ipopt.max_iter': ipopt_max_iter, 'ipopt.tol': 2e-3,
+            'ipopt.acceptable_tol': 1e-2, 'ipopt.acceptable_iter': 1,
+            'ipopt.constr_viol_tol': 1e-4, 'ipopt.compl_inf_tol': 1e-2,
+        })
+        self._opti = opti
+        self._X, self._U, self._S = X, U, S
+        self._P_x0, self._P_goal, self._P_obs = P_x0, P_goal, P_obs
+
+    def solve(self, x0, goal_xyz, obstacles):
+        """
+        x0:         (5,) [x, y, yaw, v, omega] — plan frame
+        goal_xyz:   (3,) [goal_x, goal_y, goal_yaw] — plan frame
+        obstacles:  list of (ox, oy, r) — plan frame, already includes safety margin
+        Returns (v_next, omega_next, X_pred (N+1,5)) or None on solver failure.
+        """
+        obs_p = np.zeros((3, self.MAX_OBS)); obs_p[0, :] = 1e4
+        for j, (ox, oy, r) in enumerate(obstacles[:self.MAX_OBS]):
+            obs_p[:, j] = [ox, oy, r]
+
+        self._opti.set_value(self._P_x0,  x0)
+        self._opti.set_value(self._P_goal, goal_xyz)
+        self._opti.set_value(self._P_obs,  obs_p)
+
+        N = self.N
+        if self._prev_X is not None and self._prev_X.shape == (N + 1, 5):
+            self._opti.set_initial(self._X, self._prev_X.T)
+            self._opti.set_initial(self._U, self._prev_U)
+        else:
+            self._opti.set_initial(self._X, np.tile(x0, (N + 1, 1)).T)
+            self._opti.set_initial(self._U, np.zeros((2, N)))
+        self._opti.set_initial(self._S, np.zeros((self.MAX_OBS, N + 1)))
+
+        try:
+            sol = self._opti.solve()
+        except Exception:
+            return None
+
+        X_pred = np.array(sol.value(self._X)).T   # (N+1, 5)
+        U_val  = np.array(sol.value(self._U))      # (2, N)
+        self._prev_X, self._prev_U = X_pred, U_val
+
+        v_next     = float(np.clip(x0[3] + U_val[0, 0] * self.dt, 0.0,          self.max_v))
+        omega_next = float(np.clip(x0[4] + U_val[1, 0] * self.dt, -self.max_omega, self.max_omega))
+        return v_next, omega_next, X_pred
+
+    def reset(self):
+        self._prev_X = self._prev_U = None
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -165,12 +286,16 @@ class SpotMPCNode(Node):
         self.declare_parameter("goto_point", False)
         self.declare_parameter("goal_x", 0.0)
         self.declare_parameter("goal_y", 0.0)
+        self.declare_parameter("use_carson", False)
+        self._last_omega_cmd = 0.0   # tracked for Carson NMPC initial state
         self.n_rays_phys = 72
-        # Plan-frame origin: (0,0,0) means "use Spot's vision frame as-is".
-        # Re-zeroed live via the /mpc_reset_origin service.
+        self._origin_file = os.path.join(
+            os.path.dirname(__file__), "plans", "origin.json")
+        # Plan-frame origin — persisted to origin.json across restarts.
         self._origin_x = 0.0
         self._origin_y = 0.0
         self._origin_yaw = 0.0
+        self._load_origin()
 
     def _init_model(self):
         """Load the plan (plan_sequence, bearing_map, centroids) and build
@@ -204,6 +329,17 @@ class SpotMPCNode(Node):
         self._mpc_dt = dt
         self._mpc_sr = sr
         self._occ_grid = _LocalOccGrid()
+
+        # Carson NMPC — only built if casadi is available and use_carson requested
+        self._carson = None
+        if self.get_parameter("use_carson").get_parameter_value().bool_value:
+            if not _CASADI_OK:
+                self.get_logger().error(
+                    "use_carson:=true but casadi is not installed. "
+                    "Run: pip3 install casadi")
+            else:
+                self._carson = _CarsonMPC(N=N, dt=dt)
+                self.get_logger().info("CarsonNMPC (CasADi/IPOPT) initialised.")
 
         # Current state variables
         self.latest_ranges_msg = None
@@ -354,11 +490,36 @@ class SpotMPCNode(Node):
             response.success = False; response.message = str(e)
         return response
 
+    def _load_origin(self):
+        try:
+            with open(self._origin_file) as f:
+                d = json.load(f)
+            self._origin_x = float(d["x"])
+            self._origin_y = float(d["y"])
+            self._origin_yaw = float(d["yaw"])
+            self.get_logger().info(
+                f"Loaded saved origin: ({self._origin_x:.2f}, {self._origin_y:.2f}), "
+                f"yaw={math.degrees(self._origin_yaw):.1f}°")
+        except FileNotFoundError:
+            pass  # no saved origin yet — start at (0,0,0)
+        except Exception as e:
+            self.get_logger().warn(f"Could not load origin.json: {e}")
+
+    def _save_origin(self):
+        try:
+            with open(self._origin_file, "w") as f:
+                json.dump({"x": self._origin_x,
+                           "y": self._origin_y,
+                           "yaw": self._origin_yaw}, f)
+        except Exception as e:
+            self.get_logger().warn(f"Could not save origin.json: {e}")
+
     def _reset_origin_callback(self, request, response):
         """Re-zero the plan frame to Spot's current pose (position + yaw)."""
         try:
             x, y, _vx, _vy, yaw = self._get_spot_state()
             self._origin_x, self._origin_y, self._origin_yaw = x, y, yaw
+            self._save_origin()
             response.success = True
             response.message = (
                 f"Origin reset to vision-frame ({x:.2f}, {y:.2f}), "
@@ -420,7 +581,10 @@ class SpotMPCNode(Node):
                            if c not in (expected_start, expected_next)]
 
         state = self._update_spot_state()
-        result = self._run_sampling_mpc_step(state, expected_start, expected_next)
+        if self._carson is not None:
+            result = self._run_carson_mpc_step(state)
+        else:
+            result = self._run_sampling_mpc_step(state, expected_start, expected_next)
         self._apply_action(state, result)
         self._publish_debug(state, result, expected_start, expected_next)
 
@@ -457,6 +621,65 @@ class SpotMPCNode(Node):
         c, s = math.cos(-self._origin_yaw), math.sin(-self._origin_yaw)
         pvx, pvy = c * vx - s * vy, s * vx + c * vy
         return SpotState(x=px, y=py, vx=pvx, vy=pvy, yaw=pyaw, raw_ranges=raw_ranges)
+
+    def _run_carson_mpc_step(self, state: SpotState) -> MPCResult:
+        """Run Carson's CasADi/IPOPT NMPC toward goal_x/goal_y (plan frame)."""
+        N = self._mpc_N
+        goal_x = self.get_parameter("goal_x").get_parameter_value().double_value
+        goal_y = self.get_parameter("goal_y").get_parameter_value().double_value
+
+        # Initial state: [x, y, yaw, v, omega] — plan frame
+        v_est = math.sqrt(state.vx ** 2 + state.vy ** 2)
+        x0 = np.array([state.x, state.y, state.yaw, v_est, self._last_omega_cmd])
+
+        # Goal yaw: point toward goal; hold current heading when already there
+        dx, dy = goal_x - state.x, goal_y - state.y
+        dist = math.sqrt(dx * dx + dy * dy)
+        goal_yaw = math.atan2(dy, dx) if dist > 0.1 else state.yaw
+        goal_xyz = np.array([goal_x, goal_y, goal_yaw])
+
+        # Obstacles: LiDAR hits converted to plan frame, closest MAX_OBS as discs
+        ranges = state.raw_ranges
+        n_bins = len(ranges)
+        angles = np.linspace(0.0, 2 * math.pi, n_bins, endpoint=False)
+        hits_local = np.stack(
+            [ranges * np.cos(angles), ranges * np.sin(angles)], axis=1
+        ).astype(np.float32)
+        max_r = float(ranges.max())
+        hits_local = hits_local[ranges < max_r * 0.99]
+        if len(hits_local) > 0:
+            hits_local = hits_local[np.linalg.norm(hits_local, axis=1) > 0.005]
+
+        obstacles = []
+        if len(hits_local) > 0:
+            yaw = state.yaw
+            cy_, sy_ = math.cos(yaw), math.sin(yaw)
+            R_l2g = np.array([[cy_, -sy_], [sy_, cy_]])
+            hits_global = hits_local @ R_l2g.T + np.array([state.x, state.y])
+            dists = np.linalg.norm(hits_global - np.array([state.x, state.y]), axis=1)
+            idx = np.argsort(dists)[:_CarsonMPC.MAX_OBS]
+            safe_r = self._mpc_sr + 0.05   # obstacle disc radius = safety margin + hit width
+            for i in idx:
+                obstacles.append((float(hits_global[i, 0]),
+                                   float(hits_global[i, 1]),
+                                   safe_r))
+
+        result = self._carson.solve(x0, goal_xyz, obstacles)
+        if result is None:
+            self.get_logger().warn("CarsonNMPC solve failed — stopping.",
+                                   throttle_duration_sec=1.0)
+            v_cmd, om_cmd = 0.0, 0.0
+        else:
+            v_cmd, om_cmd, _ = result
+
+        self._last_omega_cmd = om_cmd
+        dummy_rollout = np.zeros((N, 3), dtype=np.float32)
+        return MPCResult(
+            v_cmd=v_cmd, om_cmd=om_cmd,
+            guidance_ratio=0.0, cluster_score=0.0, bearing_score=0.0,
+            edt_blocked=0.0, best_rollout=dummy_rollout,
+            top_scores=np.zeros(0, dtype=np.float32),
+        )
 
     def _run_sampling_mpc_step(
         self,
