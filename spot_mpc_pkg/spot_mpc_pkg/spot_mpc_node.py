@@ -162,6 +162,9 @@ class SpotMPCNode(Node):
         self.declare_parameter("sampling_mpc_safety_radius", 0.06)
         self.declare_parameter("sampling_mpc_dt", 0.2)
         self.declare_parameter("bearing_only", False)
+        self.declare_parameter("goto_point", False)
+        self.declare_parameter("goal_x", 0.0)
+        self.declare_parameter("goal_y", 0.0)
         self.n_rays_phys = 72
         # Plan-frame origin: (0,0,0) means "use Spot's vision frame as-is".
         # Re-zeroed live via the /mpc_reset_origin service.
@@ -475,12 +478,11 @@ class SpotMPCNode(Node):
         ranges = state.raw_ranges
         n_bins = len(ranges)
         angles = np.linspace(0.0, 2 * math.pi, n_bins, endpoint=False)
-        # Convention: angle 0 = robot forward (+x body), angles CCW.
-        # Sensor reports angle 0 = forward with x=r*sin(a), y=r*cos(a) (forward=y, right=x);
-        # the unicycle model here uses forward=x body, so map: mpc_x=y_spot, mpc_y=-x_spot.
-        x_spot = ranges * np.sin(angles)
-        y_spot = ranges * np.cos(angles)
-        hits_local = np.stack([y_spot, -x_spot], axis=1).astype(np.float32)   # (n_bins,2)
+        # Convention: angle 0 = robot forward (+x body), angles CCW (standard math/ROS).
+        # Standard polar → body frame: x_body = r*cos(a), y_body = r*sin(a).
+        hits_local = np.stack(
+            [ranges * np.cos(angles), ranges * np.sin(angles)], axis=1
+        ).astype(np.float32)   # (n_bins, 2), columns = [x_body=fwd, y_body=left]
         max_r = float(ranges.max())
         mask = ranges < max_r * 0.99   # only real returns (not max-range misses)
         hits_local = hits_local[mask]
@@ -517,40 +519,55 @@ class SpotMPCNode(Node):
         end_local = traj_local[:, -1, :2]                      # (K,2)
         end_global = end_local @ R_l2g.T + sim_pos              # (K,2)
 
-        # ── Step 6: TRUE Voronoi cluster membership ────────────────────────────
-        dt_c = np.linalg.norm(end_global[:, None, :] - self._true_cents[None, :, :], axis=2)
-        nearest = np.argmin(dt_c, axis=1)                       # (K,)
-        in_target = (nearest == target_id).astype(float)
-        in_start = (nearest == start_id).astype(float)
-        in_forbidden = np.isin(nearest, self._forbidden).astype(float)
-        cluster_parts = 10.0 * in_target + 1.0 * in_start - 15.0 * in_forbidden
-        bearing_only = self.get_parameter("bearing_only").get_parameter_value().bool_value
-        scores = np.zeros(K, dtype=np.float32) if bearing_only else cluster_parts.copy()
+        # ── Step 6 + 7: Scoring ───────────────────────────────────────────────
+        goto_point = self.get_parameter("goto_point").get_parameter_value().bool_value
 
-        # ── Step 7: Bearing alignment + soft centroid-direction pull ───────────
-        # Primary signal: bearing_map's explicit, independently-known bearing
-        # for this cluster pair (plan-frame — see /mpc_reset_origin), NOT
-        # derived from centroid positions. This is the one thing we can trust
-        # to be accurate even when centroid locations are only rough map
-        # estimates. Falls back to the centroid-derived bearing only if this
-        # pair is missing from bearing_map.
-        tgt_global = self._true_cents[target_id]
-        tgt_local = (tgt_global - sim_pos) @ np.array([[cy_, sy_], [-sy_, cy_]])
-        plan_bearing = self.bearing_map.get(f"{start_id}-{target_id}")
-        if plan_bearing is not None:
-            bearing_local = float(plan_bearing) - yaw
+        if goto_point:
+            # Go-to-point mode: steer toward a fixed (x,y) in the plan frame.
+            # Set goal_x / goal_y at launch or via `ros2 param set`.
+            goal_plan = np.array([
+                self.get_parameter("goal_x").get_parameter_value().double_value,
+                self.get_parameter("goal_y").get_parameter_value().double_value,
+            ], dtype=np.float32)
+            R_g2l = np.array([[cy_, sy_], [-sy_, cy_]])
+            goal_local = (goal_plan - sim_pos) @ R_g2l
+            dist_to_goal = float(np.linalg.norm(goal_local))
+            bearing_to_goal = math.atan2(float(goal_local[1]), float(goal_local[0]))
+            # heading alignment toward goal
+            heading_score = 3.0 * np.cos(traj_local[:, -1, 2] - bearing_to_goal)
+            # distance progress: rollouts that end closer to goal score higher
+            dist_after = np.linalg.norm(end_local - goal_local[np.newaxis, :], axis=1)
+            progress_score = np.clip(
+                (dist_to_goal - dist_after).astype(np.float32), -5.0, 5.0)
+            scores = heading_score + progress_score
+            cluster_parts = np.zeros(K, dtype=np.float32)   # for debug log
+            bearing_parts = scores.copy()
         else:
-            bearing_local = math.atan2(tgt_local[1], tgt_local[0])
-        bearing_cos = 3.0 * np.cos(traj_local[:, -1, 2] - bearing_local)
+            # ── Step 6: TRUE Voronoi cluster membership ────────────────────
+            dt_c = np.linalg.norm(end_global[:, None, :] - self._true_cents[None, :, :], axis=2)
+            nearest = np.argmin(dt_c, axis=1)                       # (K,)
+            in_target = (nearest == target_id).astype(float)
+            in_start = (nearest == start_id).astype(float)
+            in_forbidden = np.isin(nearest, self._forbidden).astype(float)
+            cluster_parts = 10.0 * in_target + 1.0 * in_start - 15.0 * in_forbidden
+            bearing_only = self.get_parameter("bearing_only").get_parameter_value().bool_value
+            scores = np.zeros(K, dtype=np.float32) if bearing_only else cluster_parts.copy()
 
-        # Secondary, soft signal: heading alignment toward the target centroid's
-        # rough direction — tolerant of metric inaccuracy in centroid placement.
-        cdir = tgt_local / (np.linalg.norm(tgt_local) + 1e-6)
-        bearing_dot = 1.0 * (
-            np.cos(traj_local[:, -1, 2]) * cdir[0] +
-            np.sin(traj_local[:, -1, 2]) * cdir[1])
-        bearing_parts = bearing_cos + bearing_dot
-        scores += bearing_parts
+            # ── Step 7: Bearing alignment + soft centroid-direction pull ───
+            tgt_global = self._true_cents[target_id]
+            tgt_local = (tgt_global - sim_pos) @ np.array([[cy_, sy_], [-sy_, cy_]])
+            plan_bearing = self.bearing_map.get(f"{start_id}-{target_id}")
+            if plan_bearing is not None:
+                bearing_local = float(plan_bearing) - yaw
+            else:
+                bearing_local = math.atan2(tgt_local[1], tgt_local[0])
+            bearing_cos = 3.0 * np.cos(traj_local[:, -1, 2] - bearing_local)
+            cdir = tgt_local / (np.linalg.norm(tgt_local) + 1e-6)
+            bearing_dot = 1.0 * (
+                np.cos(traj_local[:, -1, 2]) * cdir[0] +
+                np.sin(traj_local[:, -1, 2]) * cdir[1])
+            bearing_parts = bearing_cos + bearing_dot
+            scores += bearing_parts
 
         # Penalise first-step angular velocity — breaks the tie between smooth
         # straight rollouts and zigzag rollouts that happen to end at the same
