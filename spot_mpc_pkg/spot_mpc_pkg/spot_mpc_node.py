@@ -791,18 +791,23 @@ class SpotMPCNode(Node):
             else:
                 bearing_local = math.atan2(tgt_local[1], tgt_local[0])
             bearing_cos = 3.0 * np.cos(traj_local[:, -1, 2] - bearing_local)
-            cdir = tgt_local / (np.linalg.norm(tgt_local) + 1e-6)
-            bearing_dot = 1.0 * (
-                np.cos(traj_local[:, -1, 2]) * cdir[0] +
-                np.sin(traj_local[:, -1, 2]) * cdir[1])
-            bearing_parts = bearing_cos + bearing_dot
+            if bearing_only:
+                # Don't add centroid-direction pull: when the robot has passed
+                # the target centroid, tgt_local points backward and bearing_dot
+                # fights bearing_cos, causing oscillation.
+                bearing_parts = bearing_cos
+            else:
+                cdir = tgt_local / (np.linalg.norm(tgt_local) + 1e-6)
+                bearing_dot = 1.0 * (
+                    np.cos(traj_local[:, -1, 2]) * cdir[0] +
+                    np.sin(traj_local[:, -1, 2]) * cdir[1])
+                bearing_parts = bearing_cos + bearing_dot
             scores += bearing_parts
 
-        # Penalise first-step angular velocity — breaks the tie between smooth
-        # straight rollouts and zigzag rollouts that happen to end at the same
-        # heading. Weight 0.5 is enough to prefer straight over wild-then-recover
-        # without fighting legitimate turns (bearing score still wins at corners).
-        scores -= 0.5 * np.abs(om_seqs[:, 0])
+        # Penalise mean angular velocity across all N steps — prevents zigzag
+        # rollouts that happen to end at the right heading from winning over
+        # smooth ones. Mean over all steps (not just step 0) closes the loophole.
+        scores -= 1.0 * np.mean(np.abs(om_seqs), axis=1)
 
         # ── Step 8: EDT mask ──────────────────────────────────────────────────
         collision = (dist_values < self._mpc_sr).any(axis=1)
